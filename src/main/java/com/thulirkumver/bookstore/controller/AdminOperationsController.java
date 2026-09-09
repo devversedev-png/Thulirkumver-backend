@@ -1,6 +1,7 @@
 package com.thulirkumver.bookstore.controller;
 
 import com.thulirkumver.bookstore.dto.AdminCustomerResponse;
+import com.thulirkumver.bookstore.dto.AdminOrderActionResponse;
 import com.thulirkumver.bookstore.dto.AdminOrderStatusRequest;
 import com.thulirkumver.bookstore.model.Offer;
 import com.thulirkumver.bookstore.model.Order;
@@ -48,6 +49,11 @@ public class AdminOperationsController {
     public Order updateOrderStatus(@PathVariable String id,
                                    @Valid @RequestBody AdminOrderStatusRequest request) {
         return orderService.updateStatus(id, request.status(), request.note());
+    }
+
+    @GetMapping("/orders/{id}/actions")
+    public List<AdminOrderActionResponse> orderActions(@PathVariable String id) {
+        return orderService.getAvailableActions(id);
     }
 
     @GetMapping("/customers")
