@@ -3,6 +3,7 @@ package com.thulirkumver.bookstore.controller;
 import com.thulirkumver.bookstore.dto.AccountResponse;
 import com.thulirkumver.bookstore.dto.CartRequest;
 import com.thulirkumver.bookstore.dto.QuantityRequest;
+import com.thulirkumver.bookstore.model.Address;
 import com.thulirkumver.bookstore.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.security.core.Authentication;
@@ -46,5 +47,26 @@ public class AccountController {
     @DeleteMapping("/cart/{bookId}")
     public AccountResponse removeCart(Authentication auth, @PathVariable String bookId) {
         return userService.removeFromCart(auth.getName(), bookId);
+    }
+
+    @PostMapping("/addresses")
+    public AccountResponse addAddress(Authentication auth, @Valid @RequestBody Address address) {
+        return userService.addAddress(auth.getName(), address);
+    }
+
+    @PutMapping("/addresses/{addressId}")
+    public AccountResponse updateAddress(Authentication auth, @PathVariable String addressId,
+                                         @Valid @RequestBody Address address) {
+        return userService.updateAddress(auth.getName(), addressId, address);
+    }
+
+    @DeleteMapping("/addresses/{addressId}")
+    public AccountResponse deleteAddress(Authentication auth, @PathVariable String addressId) {
+        return userService.deleteAddress(auth.getName(), addressId);
+    }
+
+    @PutMapping("/addresses/{addressId}/default")
+    public AccountResponse makeDefaultAddress(Authentication auth, @PathVariable String addressId) {
+        return userService.makeDefaultAddress(auth.getName(), addressId);
     }
 }

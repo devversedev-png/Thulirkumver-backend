@@ -1,6 +1,7 @@
 package com.thulirkumver.bookstore.service;
 
 import com.thulirkumver.bookstore.dto.AccountResponse;
+import com.thulirkumver.bookstore.model.Address;
 import com.thulirkumver.bookstore.model.Book;
 import com.thulirkumver.bookstore.model.CartItem;
 import com.thulirkumver.bookstore.model.User;
@@ -9,6 +10,8 @@ import com.thulirkumver.bookstore.repository.UserRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 @Service
 public class UserService {
@@ -26,20 +29,22 @@ public class UserService {
     }
 
     public AccountResponse getAccount(String email) {
-        return toResponse(getByEmail(email));
+        User user = getByEmail(email);
+        if (normalize(user)) user = userRepository.save(user);
+        return toResponse(user);
     }
 
     public AccountResponse addWishlist(String email, String bookId) {
         validateBook(bookId);
         User user = getByEmail(email);
-        if (!user.getWishlist().contains(bookId)) {
-            user.getWishlist().add(bookId);
-        }
+        normalize(user);
+        if (!user.getWishlist().contains(bookId)) user.getWishlist().add(bookId);
         return toResponse(userRepository.save(user));
     }
 
     public AccountResponse removeWishlist(String email, String bookId) {
         User user = getByEmail(email);
+        normalize(user);
         user.getWishlist().remove(bookId);
         return toResponse(userRepository.save(user));
     }
@@ -79,9 +84,7 @@ public class UserService {
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Book is not in cart"));
 
-        if (quantity <= 0) {
-            return removeFromCart(email, bookId);
-        }
+        if (quantity <= 0) return removeFromCart(email, bookId);
 
         Book book = bookRepository.findById(bookId)
                 .orElseThrow(() -> new IllegalArgumentException("Book not found"));
@@ -120,23 +123,84 @@ public class UserService {
         return toResponse(userRepository.save(user));
     }
 
+    public AccountResponse addAddress(String email, Address request) {
+        User user = getByEmail(email);
+        normalize(user);
+        Address address = cleanedAddress(request);
+        address.setId(UUID.randomUUID().toString());
+        if (user.getAddresses().isEmpty()) address.setDefaultAddress(true);
+        if (address.isDefaultAddress()) clearDefault(user.getAddresses());
+        user.getAddresses().add(address);
+        ensureOneDefault(user.getAddresses());
+        return toResponse(userRepository.save(user));
+    }
+
+    public AccountResponse updateAddress(String email, String addressId, Address request) {
+        User user = getByEmail(email);
+        normalize(user);
+        Address existing = findAddress(user, addressId);
+        boolean wasDefault = existing.isDefaultAddress();
+        Address updated = cleanedAddress(request);
+        updated.setId(existing.getId());
+        if (updated.isDefaultAddress()) clearDefault(user.getAddresses());
+        else if (wasDefault) updated.setDefaultAddress(true);
+
+        int index = user.getAddresses().indexOf(existing);
+        user.getAddresses().set(index, updated);
+        ensureOneDefault(user.getAddresses());
+        return toResponse(userRepository.save(user));
+    }
+
+    public AccountResponse deleteAddress(String email, String addressId) {
+        User user = getByEmail(email);
+        normalize(user);
+        Address existing = findAddress(user, addressId);
+        user.getAddresses().remove(existing);
+        ensureOneDefault(user.getAddresses());
+        return toResponse(userRepository.save(user));
+    }
+
+    public AccountResponse makeDefaultAddress(String email, String addressId) {
+        User user = getByEmail(email);
+        normalize(user);
+        Address existing = findAddress(user, addressId);
+        clearDefault(user.getAddresses());
+        existing.setDefaultAddress(true);
+        return toResponse(userRepository.save(user));
+    }
+
+    public Address rememberCheckoutAddress(User user, Address request) {
+        normalize(user);
+        if (request == null) return null;
+
+        if (request.getId() != null && !request.getId().isBlank()) {
+            for (Address saved : user.getAddresses()) {
+                if (request.getId().equals(saved.getId())) return cleanedAddress(request);
+            }
+        }
+
+        Address address = cleanedAddress(request);
+        address.setId(UUID.randomUUID().toString());
+        if (user.getAddresses().isEmpty()) address.setDefaultAddress(true);
+        user.getAddresses().add(address);
+        ensureOneDefault(user.getAddresses());
+        return address;
+    }
+
     public User save(User user) {
+        normalize(user);
         return userRepository.save(user);
     }
 
     private Book getSellableBook(String bookId) {
         Book book = bookRepository.findById(bookId)
                 .orElseThrow(() -> new IllegalArgumentException("Book not found"));
-        if (!book.isAvailable()) {
-            throw new IllegalArgumentException(book.getTitle() + " is currently out of stock");
-        }
+        if (!book.isAvailable()) throw new IllegalArgumentException(book.getTitle() + " is currently out of stock");
         return book;
     }
 
     private void reserveStock(Book book, int quantity) {
-        if (book.getStock() < quantity) {
-            throw new IllegalArgumentException(book.getTitle() + " has only " + book.getStock() + " left");
-        }
+        if (book.getStock() < quantity) throw new IllegalArgumentException(book.getTitle() + " has only " + book.getStock() + " left");
         book.setStock(book.getStock() - quantity);
         bookRepository.save(book);
     }
@@ -147,27 +211,72 @@ public class UserService {
     }
 
     private void validateBook(String bookId) {
-        if (!bookRepository.existsById(bookId)) {
-            throw new IllegalArgumentException("Book not found");
-        }
+        if (!bookRepository.existsById(bookId)) throw new IllegalArgumentException("Book not found");
     }
 
-    private void normalize(User user) {
-        if (user.getWishlist() == null) user.setWishlist(new ArrayList<>());
-        if (user.getCart() == null) user.setCart(new ArrayList<>());
-        if (user.getAddresses() == null) user.setAddresses(new ArrayList<>());
+    private Address findAddress(User user, String addressId) {
+        return user.getAddresses().stream()
+                .filter(address -> addressId.equals(address.getId()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Address not found"));
+    }
+
+    private Address cleanedAddress(Address source) {
+        Address target = new Address();
+        target.setLabel(cleanText(source.getLabel(), "Home"));
+        target.setFullName(cleanText(source.getFullName(), ""));
+        target.setMobile(cleanText(source.getMobile(), ""));
+        target.setLine1(cleanText(source.getLine1(), ""));
+        target.setLine2(cleanText(source.getLine2(), ""));
+        target.setCity(cleanText(source.getCity(), ""));
+        target.setState(cleanText(source.getState(), ""));
+        target.setPincode(cleanText(source.getPincode(), ""));
+        target.setLatitude(source.getLatitude());
+        target.setLongitude(source.getLongitude());
+        target.setLocationLabel(cleanText(source.getLocationLabel(), ""));
+        target.setDefaultAddress(source.isDefaultAddress());
+        return target;
+    }
+
+    private String cleanText(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
+    private void clearDefault(List<Address> addresses) {
+        addresses.forEach(address -> address.setDefaultAddress(false));
+    }
+
+    private void ensureOneDefault(List<Address> addresses) {
+        if (addresses.isEmpty()) return;
+        if (addresses.stream().noneMatch(Address::isDefaultAddress)) addresses.get(0).setDefaultAddress(true);
+    }
+
+    private boolean normalize(User user) {
+        boolean changed = false;
+        if (user.getWishlist() == null) { user.setWishlist(new ArrayList<>()); changed = true; }
+        if (user.getCart() == null) { user.setCart(new ArrayList<>()); changed = true; }
+        if (user.getAddresses() == null) { user.setAddresses(new ArrayList<>()); changed = true; }
+
+        boolean hasDefault = false;
+        int addressNumber = 1;
+        for (Address address : user.getAddresses()) {
+            if (address.getId() == null || address.getId().isBlank()) { address.setId(UUID.randomUUID().toString()); changed = true; }
+            if (address.getLabel() == null || address.getLabel().isBlank()) { address.setLabel(addressNumber == 1 ? "Home" : "Address " + addressNumber); changed = true; }
+            if (address.isDefaultAddress()) {
+                if (hasDefault) { address.setDefaultAddress(false); changed = true; }
+                else hasDefault = true;
+            }
+            addressNumber++;
+        }
+        if (!user.getAddresses().isEmpty() && !hasDefault) { user.getAddresses().get(0).setDefaultAddress(true); changed = true; }
+        return changed;
     }
 
     private AccountResponse toResponse(User user) {
         normalize(user);
         return new AccountResponse(
-                user.getId(),
-                user.getName(),
-                user.getEmail(),
-                user.getMobile(),
-                user.getWishlist(),
-                user.getCart(),
-                user.getAddresses()
+                user.getId(), user.getName(), user.getEmail(), user.getMobile(),
+                user.getWishlist(), user.getCart(), user.getAddresses()
         );
     }
 }

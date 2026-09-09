@@ -75,6 +75,8 @@ public class OrderService {
         double discount = appliedOffer == null ? 0 : calculateDiscount(appliedOffer, subtotal);
         Instant now = Instant.now();
 
+        Address checkoutAddress = userService.rememberCheckoutAddress(user, request.address());
+
         Order order = new Order();
         order.setOrderNumber(makeOrderNumber());
         order.setUserId(user.getId());
@@ -82,7 +84,7 @@ public class OrderService {
         order.setCustomerEmail(user.getEmail());
         order.setCustomerMobile(user.getMobile());
         order.setItems(orderItems);
-        order.setDeliveryAddress(request.address());
+        order.setDeliveryAddress(checkoutAddress);
         order.setPaymentMethod(request.paymentMethod());
         order.setPaymentStatus("PENDING");
         order.setStatus(BOOKING_CONFIRMED);
@@ -101,7 +103,6 @@ public class OrderService {
         Order saved = orderRepository.save(order);
 
         user.getCart().clear();
-        if (user.getAddresses().isEmpty()) user.getAddresses().add(request.address());
         userService.save(user);
         return saved;
     }
