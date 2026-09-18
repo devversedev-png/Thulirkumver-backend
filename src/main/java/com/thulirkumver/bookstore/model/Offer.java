@@ -16,6 +16,7 @@ public class Offer {
     private String startDate;
     private String endDate;
     private boolean active;
+    private String bannerImage;
 
     public Offer() {
     }
@@ -40,4 +41,6 @@ public class Offer {
     public void setEndDate(String endDate) { this.endDate = endDate; }
     public boolean isActive() { return active; }
     public void setActive(boolean active) { this.active = active; }
+    public String getBannerImage() { return bannerImage; }
+    public void setBannerImage(String bannerImage) { this.bannerImage = bannerImage; }
 }

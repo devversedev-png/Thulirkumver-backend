@@ -41,21 +41,19 @@ public class SecurityConfig {
                 )
 
                 .authorizeHttpRequests(auth -> auth
-
-                        // Public APIs
                         .requestMatchers(
                                 "/api/auth/**",
                                 "/api/books/**",
                                 "/api/offers/**",
-                                "/api/authors/**"
+                                "/api/authors/**",
+                                "/api/home-sections",
+                                "/api/home-settings"
                         ).permitAll()
 
-                        // Admin APIs
                         .requestMatchers(
                                 "/api/admin/**"
                         ).hasRole("ADMIN")
 
-                        // Everything else requires authentication
                         .anyRequest().authenticated()
                 )
 
@@ -67,12 +65,10 @@ public class SecurityConfig {
                 .build();
     }
 
-
     @Bean
     PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
-
 
     @Bean
     CorsConfigurationSource corsConfigurationSource(
@@ -81,13 +77,6 @@ public class SecurityConfig {
 
         CorsConfiguration config = new CorsConfiguration();
 
-        /*
-         * Render environment variable can contain:
-         *
-         * https://thulirkum-ver.vercel.app, http://localhost:5173
-         *
-         * Split the value into separate origins.
-         */
         List<String> origins = Arrays.stream(
                         allowedOrigins.split(",")
                 )
