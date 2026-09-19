@@ -4,7 +4,9 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Document("home_sections")
 public class HomeSection {
@@ -16,6 +18,13 @@ public class HomeSection {
     private List<String> bookIds = new ArrayList<>();
     private boolean active = true;
     private int displayOrder;
+
+    /**
+     * Section-specific configuration. Keeping this as a map means each section
+     * can expose only the settings that make sense for it without creating a
+     * large model full of unrelated fields.
+     */
+    private Map<String, Object> config = new HashMap<>();
 
     public HomeSection() {
     }
@@ -36,4 +45,8 @@ public class HomeSection {
     public void setActive(boolean active) { this.active = active; }
     public int getDisplayOrder() { return displayOrder; }
     public void setDisplayOrder(int displayOrder) { this.displayOrder = displayOrder; }
+    public Map<String, Object> getConfig() { return config; }
+    public void setConfig(Map<String, Object> config) {
+        this.config = config == null ? new HashMap<>() : new HashMap<>(config);
+    }
 }
