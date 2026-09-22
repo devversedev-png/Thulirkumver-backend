@@ -29,14 +29,46 @@ import java.util.stream.Collectors;
 @RequestMapping("/api")
 public class HomeContentController {
     private static final List<Map<String, String>> SECTION_DEFINITIONS = List.of(
-            Map.of("key", "discounted", "title", "Discounted Books", "description", "Books currently available below their original price."),
-            Map.of("key", "top-selling", "title", "Top Selling Books", "description", "Books with the highest recent sales."),
-            Map.of("key", "highly-featured", "title", "Highly Featured Books", "description", "Books marked as featured or selected manually by the admin."),
-            Map.of("key", "cashback", "title", "Cashback Books", "description", "Books selected for cashback promotions."),
-            Map.of("key", "new-arrivals", "title", "New Arrivals", "description", "Books marked as new arrivals in the catalogue."),
-            Map.of("key", "best-rated", "title", "Best Rated Books", "description", "Books meeting the selected rating and review thresholds."),
-            Map.of("key", "trending", "title", "Trending Books", "description", "Books trending from recent sales or ratings."),
-            Map.of("key", "recommended", "title", "Recommended Books", "Books selected or filtered for recommendations.")
+            Map.of(
+                    "key", "discounted",
+                    "title", "Discounted Books",
+                    "description", "Books currently available below their original price."
+            ),
+            Map.of(
+                    "key", "top-selling",
+                    "title", "Top Selling Books",
+                    "description", "Books with the highest recent sales."
+            ),
+            Map.of(
+                    "key", "highly-featured",
+                    "title", "Highly Featured Books",
+                    "description", "Books marked as featured or selected manually by the admin."
+            ),
+            Map.of(
+                    "key", "cashback",
+                    "title", "Cashback Books",
+                    "description", "Books selected for cashback promotions."
+            ),
+            Map.of(
+                    "key", "new-arrivals",
+                    "title", "New Arrivals",
+                    "description", "Books marked as new arrivals in the catalogue."
+            ),
+            Map.of(
+                    "key", "best-rated",
+                    "title", "Best Rated Books",
+                    "description", "Books meeting the selected rating and review thresholds."
+            ),
+            Map.of(
+                    "key", "trending",
+                    "title", "Trending Books",
+                    "description", "Books trending from recent sales or ratings."
+            ),
+            Map.of(
+                    "key", "recommended",
+                    "title", "Recommended Books",
+                    "description", "Books selected or filtered for recommendations."
+            )
     );
 
     private final HomeSectionRepository sectionRepository;
