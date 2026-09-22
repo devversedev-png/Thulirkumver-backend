@@ -46,6 +46,7 @@ public class SecurityConfig {
                                 "/api/books/**",
                                 "/api/offers/**",
                                 "/api/authors/**",
+                                "/api/health",
                                 "/api/home-sections",
                                 "/api/home-settings"
                         ).permitAll()
