@@ -17,28 +17,69 @@ import java.util.List;
 
 @Component
 public class JwtFilter extends OncePerRequestFilter {
+
     private final JwtService jwtService;
     private final UserService userService;
 
-    public JwtFilter(JwtService jwtService, UserService userService) {
+    public JwtFilter(
+            JwtService jwtService,
+            UserService userService
+    ) {
         this.jwtService = jwtService;
         this.userService = userService;
     }
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
-            throws ServletException, IOException {
+    protected void doFilterInternal(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            FilterChain filterChain
+    ) throws ServletException, IOException {
+
         String header = request.getHeader("Authorization");
 
-        if (header != null && header.startsWith("Bearer ") && SecurityContextHolder.getContext().getAuthentication() == null) {
+        if (header != null
+                && header.startsWith("Bearer ")
+                && SecurityContextHolder.getContext()
+                .getAuthentication() == null) {
+
             try {
-                String email = jwtService.getEmail(header.substring(7));
+                String token = header.substring(7);
+
+                String email = jwtService.getEmail(token);
+
                 var user = userService.getByEmail(email);
-                String role = user.getRole() == null || user.getRole().isBlank() ? "CUSTOMER" : user.getRole();
-                var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()));
-                var authentication = new UsernamePasswordAuthenticationToken(email, null, authorities);
-                SecurityContextHolder.getContext().setAuthentication(authentication);
+
+                String role = user.getRole();
+
+                if (role == null || role.isBlank()) {
+                    role = "CUSTOMER";
+                }
+
+                role = role.trim().toUpperCase();
+
+                // Prevent ROLE_ROLE_ADMIN
+                if (role.startsWith("ROLE_")) {
+                    role = role.substring(5);
+                }
+
+                var authorities = List.of(
+                        new SimpleGrantedAuthority("ROLE_" + role)
+                );
+
+                var authentication =
+                        new UsernamePasswordAuthenticationToken(
+                                email,
+                                null,
+                                authorities
+                        );
+
+                SecurityContextHolder
+                        .getContext()
+                        .setAuthentication(authentication);
+
             } catch (Exception ignored) {
+                // Invalid JWT -> request continues without authentication
             }
         }
 
