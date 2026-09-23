@@ -5,9 +5,9 @@ import com.thulirkumver.bookstore.model.HomeSection;
 import com.thulirkumver.bookstore.model.HomeSettings;
 import com.thulirkumver.bookstore.model.Order;
 import com.thulirkumver.bookstore.repository.BookRepository;
-import com.thulirkumver.bookstore.repository.HomeSectionRepository;
 import com.thulirkumver.bookstore.repository.HomeSettingsRepository;
 import com.thulirkumver.bookstore.repository.OrderRepository;
+import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,8 +22,12 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+
+import org.bson.Document;
+import org.bson.types.ObjectId;
 
 @RestController
 @RequestMapping("/api")
@@ -71,19 +75,19 @@ public class HomeContentController {
             )
     );
 
-    private final HomeSectionRepository sectionRepository;
     private final HomeSettingsRepository settingsRepository;
     private final BookRepository bookRepository;
     private final OrderRepository orderRepository;
+    private final MongoTemplate mongoTemplate;
 
-    public HomeContentController(HomeSectionRepository sectionRepository,
-                                 HomeSettingsRepository settingsRepository,
+    public HomeContentController(HomeSettingsRepository settingsRepository,
                                  BookRepository bookRepository,
-                                 OrderRepository orderRepository) {
-        this.sectionRepository = sectionRepository;
+                                 OrderRepository orderRepository,
+                                 MongoTemplate mongoTemplate) {
         this.settingsRepository = settingsRepository;
         this.bookRepository = bookRepository;
         this.orderRepository = orderRepository;
+        this.mongoTemplate = mongoTemplate;
     }
 
     @GetMapping("/home-sections")
@@ -94,7 +98,7 @@ public class HomeContentController {
                 .collect(Collectors.toMap(Book::getId, Function.identity(), (a, b) -> a));
         Map<String, Long> sales = salesForDays(30);
 
-        return sectionRepository.findAllByOrderByDisplayOrderAsc().stream()
+        return safeFindAllSections().stream()
                 .filter(HomeSection::isActive)
                 .map(section -> {
                     List<Book> resolved = resolveBooks(section, books, byId, sales);
@@ -132,8 +136,7 @@ public class HomeContentController {
         for (HomeSection incoming : sections == null ? List.<HomeSection>of() : sections) {
             if (incoming.getKey() == null || incoming.getKey().isBlank()) continue;
 
-            HomeSection target = sectionRepository.findByKeyIgnoreCase(incoming.getKey())
-                    .orElseGet(HomeSection::new);
+            HomeSection target = safeFindSectionByKey(incoming.getKey()).orElseGet(HomeSection::new);
 
             target.setKey(incoming.getKey());
             target.setTitle(incoming.getTitle());
@@ -142,7 +145,7 @@ public class HomeContentController {
             target.setActive(incoming.isActive());
             target.setDisplayOrder(incoming.getDisplayOrder());
             target.setConfig(normalizeConfig(incoming.getKey(), incoming.getConfig()));
-            saved.add(sectionRepository.save(target));
+            saved.add(safeSaveSection(target));
         }
         return ensureDefaultSections();
     }
@@ -171,7 +174,7 @@ public class HomeContentController {
     private List<HomeSection> ensureDefaultSections() {
         for (int index = 0; index < SECTION_DEFINITIONS.size(); index++) {
             Map<String, String> definition = SECTION_DEFINITIONS.get(index);
-            HomeSection section = sectionRepository.findByKeyIgnoreCase(definition.get("key"))
+            HomeSection section = safeFindSectionByKey(definition.get("key"))
                     .orElseGet(HomeSection::new);
 
             boolean changed = false;
@@ -205,12 +208,144 @@ public class HomeContentController {
                 changed = true;
             }
 
-            if (changed) sectionRepository.save(section);
+            if (changed) safeSaveSection(section);
         }
 
-        return sectionRepository.findAllByOrderByDisplayOrderAsc().stream()
+        return safeFindAllSections().stream()
                 .sorted(Comparator.comparingInt(HomeSection::getDisplayOrder))
                 .toList();
+    }
+
+    /**
+     * Home-section documents were introduced/changed while the admin UI was evolving.
+     * Read them as raw Mongo documents so one legacy/malformed field cannot make the
+     * entire /api/admin/home-sections endpoint return HTTP 500.
+     */
+    private List<HomeSection> safeFindAllSections() {
+        List<HomeSection> sections = new ArrayList<>();
+        for (Document document : mongoTemplate.getCollection("home_sections").find()) {
+            try {
+                sections.add(fromDocument(document));
+            } catch (Exception ex) {
+                // Keep the admin page usable even if one legacy document is malformed.
+                // The bad document can be replaced by the next save operation.
+                org.slf4j.LoggerFactory.getLogger(HomeContentController.class)
+                        .warn("Ignoring malformed home_sections document {}: {}",
+                                document.get("_id"), ex.getMessage());
+            }
+        }
+        sections.sort(Comparator.comparingInt(HomeSection::getDisplayOrder));
+        return sections;
+    }
+
+    private java.util.Optional<HomeSection> safeFindSectionByKey(String key) {
+        if (key == null || key.isBlank()) return java.util.Optional.empty();
+        String escaped = Pattern.quote(key.trim());
+        Document document = mongoTemplate.getCollection("home_sections")
+                .find(new Document("key", new Document("$regex", "^" + escaped + "$")
+                        .append("$options", "i")))
+                .first();
+        if (document == null) return java.util.Optional.empty();
+        try {
+            return java.util.Optional.of(fromDocument(document));
+        } catch (Exception ex) {
+            org.slf4j.LoggerFactory.getLogger(HomeContentController.class)
+                    .warn("Replacing malformed home section '{}' ({}): {}",
+                            key, document.get("_id"), ex.getMessage());
+            return java.util.Optional.empty();
+        }
+    }
+
+    private HomeSection safeSaveSection(HomeSection section) {
+        Document existing = null;
+        if (section.getId() != null && !section.getId().isBlank()) {
+            Object id = section.getId();
+            Object mongoId = id instanceof String && ObjectId.isValid((String) id)
+                    ? new ObjectId((String) id) : id;
+            existing = mongoTemplate.getCollection("home_sections")
+                    .find(new Document("_id", mongoId)).first();
+        }
+        if (existing == null) {
+            String escaped = Pattern.quote(section.getKey().trim());
+            existing = mongoTemplate.getCollection("home_sections")
+                    .find(new Document("key", new Document("$regex", "^" + escaped + "$")
+                            .append("$options", "i")))
+                    .first();
+        }
+
+        Document values = toDocument(section);
+        if (existing != null) {
+            mongoTemplate.getCollection("home_sections")
+                    .replaceOne(new Document("_id", existing.get("_id")), values);
+            section.setId(String.valueOf(existing.get("_id")));
+        } else {
+            mongoTemplate.getCollection("home_sections").insertOne(values);
+            Object id = values.get("_id");
+            if (id != null) section.setId(String.valueOf(id));
+        }
+        return section;
+    }
+
+    private HomeSection fromDocument(Document document) {
+        HomeSection section = new HomeSection();
+        Object id = document.get("_id");
+        if (id != null) section.setId(String.valueOf(id));
+        section.setKey(stringField(document.get("key"), ""));
+        section.setTitle(stringField(document.get("title"), ""));
+        section.setDescription(stringField(document.get("description"), ""));
+
+        List<String> bookIds = new ArrayList<>();
+        Object rawBookIds = document.get("bookIds");
+        if (rawBookIds instanceof List<?> list) {
+            for (Object value : list) if (value != null) bookIds.add(String.valueOf(value));
+        }
+        section.setBookIds(bookIds);
+        section.setActive(booleanField(document.get("active"), true));
+        section.setDisplayOrder(intField(document.get("displayOrder"), 0));
+
+        Map<String, Object> config = new HashMap<>();
+        Object rawConfig = document.get("config");
+        if (rawConfig instanceof Document raw) {
+            config.putAll(raw);
+        } else if (rawConfig instanceof Map<?, ?> raw) {
+            for (Map.Entry<?, ?> entry : raw.entrySet()) {
+                if (entry.getKey() != null) config.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+        section.setConfig(config);
+        return section;
+    }
+
+    private Document toDocument(HomeSection section) {
+        Document document = new Document();
+        if (section.getId() != null && !section.getId().isBlank()) {
+            String id = section.getId();
+            document.put("_id", ObjectId.isValid(id) ? new ObjectId(id) : id);
+        }
+        document.put("key", section.getKey());
+        document.put("title", section.getTitle());
+        document.put("description", section.getDescription());
+        document.put("bookIds", section.getBookIds() == null ? List.of() : section.getBookIds());
+        document.put("active", section.isActive());
+        document.put("displayOrder", section.getDisplayOrder());
+        document.put("config", section.getConfig() == null ? new HashMap<>() : new HashMap<>(section.getConfig()));
+        return document;
+    }
+
+    private String stringField(Object value, String fallback) {
+        return value == null ? fallback : String.valueOf(value);
+    }
+
+    private boolean booleanField(Object value, boolean fallback) {
+        if (value instanceof Boolean b) return b;
+        if (value == null) return fallback;
+        return Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private int intField(Object value, int fallback) {
+        if (value instanceof Number n) return n.intValue();
+        try { return value == null ? fallback : Integer.parseInt(String.valueOf(value)); }
+        catch (Exception ignored) { return fallback; }
     }
 
     private Map<String, Object> defaultConfig(String key) {
