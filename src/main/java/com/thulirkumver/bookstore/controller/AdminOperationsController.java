@@ -48,8 +48,7 @@ public class AdminOperationsController {
     @PutMapping("/orders/{id}/status")
     public Order updateOrderStatus(@PathVariable String id,
                                    @Valid @RequestBody AdminOrderStatusRequest request) {
-        return orderService.updateStatus(id, request.status(), request.note(),
-                request.courierName(), request.trackingNumber());
+        return orderService.updateStatus(id, request.status(), request.note(), request.courierName(), request.trackingNumber());
     }
 
     @GetMapping("/orders/{id}/actions")

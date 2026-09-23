@@ -173,23 +173,13 @@ public class OrderService {
         return actions;
     }
 
-    public synchronized Order updateStatus(String orderId, String newStatus, String note) {
-        return updateStatus(orderId, newStatus, note, null, null);
-    }
-
-    public synchronized Order updateStatus(String orderId, String newStatus, String note,
-                                           String courierName, String trackingNumber) {
+    public synchronized Order updateStatus(String orderId, String newStatus, String note, String courierName, String trackingNumber) {
         String status = normalizeStatus(newStatus);
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Order not found"));
         String current = normalizeStatus(order.getStatus());
 
-        if (current.equals(status)) {
-            boolean changed = false;
-            if (courierName != null && !courierName.isBlank()) { order.setCourierName(courierName.trim()); changed = true; }
-            if (trackingNumber != null && !trackingNumber.isBlank()) { order.setTrackingNumber(trackingNumber.trim()); changed = true; }
-            return changed ? orderRepository.save(order) : order;
-        }
+        if (current.equals(status)) return order;
 
         if (CANCELLED.equals(current)) {
             if (!BOOKING_CONFIRMED.equals(status)) {
@@ -198,6 +188,8 @@ public class OrderService {
             reserveOrderStock(order);
             order.setStockRestored(false);
             order.setPaymentStatus("PENDING");
+            order.setCourierName(null);
+            order.setTrackingNumber(null);
         } else if (!isAllowedTransition(current, status)) {
             throw new IllegalArgumentException("This status change is not allowed from " + statusLabel(current));
         }
@@ -205,6 +197,18 @@ public class OrderService {
         if (CANCELLED.equals(status) && !order.isStockRestored()) {
             restoreOrderStock(order);
             order.setStockRestored(true);
+            order.setCourierName(null);
+            order.setTrackingNumber(null);
+        }
+
+        if (SHIPPED.equals(status)) {
+            String courier = courierName == null ? "" : courierName.trim();
+            String tracking = trackingNumber == null ? "" : trackingNumber.trim();
+            if (courier.isBlank() || tracking.isBlank()) {
+                throw new IllegalArgumentException("Courier name and tracking number are required when shipping an order");
+            }
+            order.setCourierName(courier);
+            order.setTrackingNumber(tracking);
         }
 
         Instant now = Instant.now();
@@ -212,20 +216,12 @@ public class OrderService {
         order.setStatusUpdatedAt(now);
         if (DELIVERED.equals(status)) order.setPaymentStatus("PAID");
 
-        if (courierName != null && !courierName.isBlank()) order.setCourierName(courierName.trim());
-        if (trackingNumber != null && !trackingNumber.isBlank()) order.setTrackingNumber(trackingNumber.trim());
-        if (CANCELLED.equals(status) || (BOOKING_CONFIRMED.equals(status) && CANCELLED.equals(current))) {
-            order.setCourierName(null);
-            order.setTrackingNumber(null);
-        }
-
-        String effectiveNote = note == null || note.isBlank() ? defaultNote(status, CANCELLED.equals(current)) : note.trim();
-        if (SHIPPED.equals(status) && trackingNumber != null && !trackingNumber.isBlank()) {
-            effectiveNote = effectiveNote + " (Tracking: " + trackingNumber.trim() + ")";
-        }
-
         if (order.getStatusHistory() == null) order.setStatusHistory(new ArrayList<>());
-        order.getStatusHistory().add(new OrderStatusEvent(status, effectiveNote, now));
+        order.getStatusHistory().add(new OrderStatusEvent(
+                status,
+                note == null || note.isBlank() ? defaultNote(status, CANCELLED.equals(current)) : note.trim(),
+                now
+        ));
         return orderRepository.save(order);
     }
 

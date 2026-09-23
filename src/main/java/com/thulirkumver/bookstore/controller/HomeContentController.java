@@ -321,17 +321,13 @@ public class HomeContentController {
                 if ("MANUAL".equalsIgnoreCase(mode)) {
                     yield manualBooks(section, byId, limit);
                 }
-                List<Book> flagged = candidates.stream().filter(Book::isFeatured).limit(limit).toList();
-                // If no book is flagged "Featured" yet but the admin already picked books
-                // manually for this section, show those instead of an empty section.
-                yield flagged.isEmpty() ? manualBooks(section, byId, limit) : flagged;
+                yield candidates.stream().filter(Book::isFeatured).limit(limit).toList();
             }
             case "cashback" -> manualBooks(section, byId, limit);
             case "new-arrivals" -> {
                 String mode = stringValue(config.get("mode"), "NEW_ARRIVAL_FLAG");
                 if ("MANUAL".equalsIgnoreCase(mode)) yield manualBooks(section, byId, limit);
-                List<Book> flagged = candidates.stream().filter(Book::isNewArrival).limit(limit).toList();
-                yield flagged.isEmpty() ? manualBooks(section, byId, limit) : flagged;
+                yield candidates.stream().filter(Book::isNewArrival).limit(limit).toList();
             }
             case "best-rated" -> {
                 double minRating = doubleValue(config.get("minRating"), 4, 0, 5);

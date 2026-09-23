@@ -21,9 +21,9 @@ public class Order {
     private String paymentMethod;
     private String paymentStatus;
     private String status;
-    private List<OrderStatusEvent> statusHistory = new ArrayList<>();
     private String courierName;
     private String trackingNumber;
+    private List<OrderStatusEvent> statusHistory = new ArrayList<>();
     private double subtotal;
     private double shipping;
     private double discount;
@@ -58,12 +58,12 @@ public class Order {
     public void setPaymentStatus(String paymentStatus) { this.paymentStatus = paymentStatus; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
-    public List<OrderStatusEvent> getStatusHistory() { return statusHistory; }
-    public void setStatusHistory(List<OrderStatusEvent> statusHistory) { this.statusHistory = statusHistory; }
     public String getCourierName() { return courierName; }
     public void setCourierName(String courierName) { this.courierName = courierName; }
     public String getTrackingNumber() { return trackingNumber; }
     public void setTrackingNumber(String trackingNumber) { this.trackingNumber = trackingNumber; }
+    public List<OrderStatusEvent> getStatusHistory() { return statusHistory; }
+    public void setStatusHistory(List<OrderStatusEvent> statusHistory) { this.statusHistory = statusHistory; }
     public double getSubtotal() { return subtotal; }
     public void setSubtotal(double subtotal) { this.subtotal = subtotal; }
     public double getShipping() { return shipping; }
