@@ -229,6 +229,7 @@ public class UserService {
         target.setLine1(cleanText(source.getLine1(), ""));
         target.setLine2(cleanText(source.getLine2(), ""));
         target.setCity(cleanText(source.getCity(), ""));
+        target.setDistrict(cleanText(source.getDistrict(), ""));
         target.setState(cleanText(source.getState(), ""));
         target.setPincode(cleanText(source.getPincode(), ""));
         target.setLatitude(source.getLatitude());

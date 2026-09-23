@@ -4,6 +4,8 @@ import jakarta.validation.constraints.NotBlank;
 
 public record AdminOrderStatusRequest(
         @NotBlank String status,
-        String note
+        String note,
+        String courierName,
+        String trackingNumber
 ) {
 }

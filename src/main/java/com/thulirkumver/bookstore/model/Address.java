@@ -14,6 +14,7 @@ public class Address {
     private String line2;
     @NotBlank
     private String city;
+    private String district;
     @NotBlank
     private String state;
     @NotBlank
@@ -40,6 +41,8 @@ public class Address {
     public void setLine2(String line2) { this.line2 = line2; }
     public String getCity() { return city; }
     public void setCity(String city) { this.city = city; }
+    public String getDistrict() { return district; }
+    public void setDistrict(String district) { this.district = district; }
     public String getState() { return state; }
     public void setState(String state) { this.state = state; }
     public String getPincode() { return pincode; }

@@ -174,12 +174,22 @@ public class OrderService {
     }
 
     public synchronized Order updateStatus(String orderId, String newStatus, String note) {
+        return updateStatus(orderId, newStatus, note, null, null);
+    }
+
+    public synchronized Order updateStatus(String orderId, String newStatus, String note,
+                                           String courierName, String trackingNumber) {
         String status = normalizeStatus(newStatus);
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Order not found"));
         String current = normalizeStatus(order.getStatus());
 
-        if (current.equals(status)) return order;
+        if (current.equals(status)) {
+            boolean changed = false;
+            if (courierName != null && !courierName.isBlank()) { order.setCourierName(courierName.trim()); changed = true; }
+            if (trackingNumber != null && !trackingNumber.isBlank()) { order.setTrackingNumber(trackingNumber.trim()); changed = true; }
+            return changed ? orderRepository.save(order) : order;
+        }
 
         if (CANCELLED.equals(current)) {
             if (!BOOKING_CONFIRMED.equals(status)) {
@@ -202,12 +212,20 @@ public class OrderService {
         order.setStatusUpdatedAt(now);
         if (DELIVERED.equals(status)) order.setPaymentStatus("PAID");
 
+        if (courierName != null && !courierName.isBlank()) order.setCourierName(courierName.trim());
+        if (trackingNumber != null && !trackingNumber.isBlank()) order.setTrackingNumber(trackingNumber.trim());
+        if (CANCELLED.equals(status) || (BOOKING_CONFIRMED.equals(status) && CANCELLED.equals(current))) {
+            order.setCourierName(null);
+            order.setTrackingNumber(null);
+        }
+
+        String effectiveNote = note == null || note.isBlank() ? defaultNote(status, CANCELLED.equals(current)) : note.trim();
+        if (SHIPPED.equals(status) && trackingNumber != null && !trackingNumber.isBlank()) {
+            effectiveNote = effectiveNote + " (Tracking: " + trackingNumber.trim() + ")";
+        }
+
         if (order.getStatusHistory() == null) order.setStatusHistory(new ArrayList<>());
-        order.getStatusHistory().add(new OrderStatusEvent(
-                status,
-                note == null || note.isBlank() ? defaultNote(status, CANCELLED.equals(current)) : note.trim(),
-                now
-        ));
+        order.getStatusHistory().add(new OrderStatusEvent(status, effectiveNote, now));
         return orderRepository.save(order);
     }
 
