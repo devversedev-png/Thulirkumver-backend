@@ -1,6 +1,7 @@
 spring:
   application:
     name: thulirkum-ver-bookstore
+
   data:
     mongodb:
       uri: ${MONGODB_URI}
@@ -10,7 +11,11 @@ server:
 
 app:
   jwt-secret: ${JWT_SECRET}
-  cors-origin: ${CORS_ALLOWED_ORIGIN}
+  cors-allowed-origin: ${CORS_ALLOWED_ORIGIN}
   admin-name: ${ADMIN_NAME}
   admin-email: ${ADMIN_EMAIL}
   admin-password: ${ADMIN_PASSWORD}
+
+razorpay:
+  key-id: ${RAZORPAY_KEY_ID}
+  key-secret: ${RAZORPAY_KEY_SECRET}
