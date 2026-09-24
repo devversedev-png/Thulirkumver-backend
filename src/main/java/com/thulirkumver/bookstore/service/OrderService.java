@@ -86,7 +86,8 @@ public class OrderService {
         order.setItems(orderItems);
         order.setDeliveryAddress(checkoutAddress);
         order.setPaymentMethod(request.paymentMethod());
-        order.setPaymentStatus("PENDING");
+        order.setPaymentStatus("UNPAID");
+        order.setAmountPaid(0);
         order.setStatus(BOOKING_CONFIRMED);
         order.setStatusHistory(new ArrayList<>(List.of(
                 new OrderStatusEvent(BOOKING_CONFIRMED, "Order received and booking confirmed", now)
@@ -140,6 +141,33 @@ public class OrderService {
                 .toList();
     }
 
+    public synchronized Order updatePayment(String orderId, double amountPaid) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Order not found"));
+
+        if (Double.isNaN(amountPaid) || Double.isInfinite(amountPaid)) {
+            throw new IllegalArgumentException("Amount paid must be a valid number");
+        }
+        if (amountPaid < 0) {
+            throw new IllegalArgumentException("Amount paid cannot be negative");
+        }
+        if (amountPaid > order.getTotal()) {
+            throw new IllegalArgumentException("Amount paid cannot be greater than the order total");
+        }
+
+        double paid = round(amountPaid);
+        order.setAmountPaid(paid);
+        if (paid <= 0) {
+            order.setPaymentStatus("UNPAID");
+        } else if (paid < order.getTotal()) {
+            order.setPaymentStatus("PARTIALLY_PAID");
+        } else {
+            order.setPaymentStatus("PAID");
+        }
+
+        return orderRepository.save(order);
+    }
+
     public List<AdminOrderActionResponse> getAvailableActions(String orderId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Order not found"));
@@ -187,7 +215,8 @@ public class OrderService {
             }
             reserveOrderStock(order);
             order.setStockRestored(false);
-            order.setPaymentStatus("PENDING");
+            order.setPaymentStatus("UNPAID");
+            order.setAmountPaid(0);
             order.setCourierName(null);
             order.setTrackingNumber(null);
         } else if (!isAllowedTransition(current, status)) {
@@ -214,7 +243,10 @@ public class OrderService {
         Instant now = Instant.now();
         order.setStatus(status);
         order.setStatusUpdatedAt(now);
-        if (DELIVERED.equals(status)) order.setPaymentStatus("PAID");
+        if (DELIVERED.equals(status)) {
+            order.setAmountPaid(round(order.getTotal()));
+            order.setPaymentStatus("PAID");
+        }
 
         if (order.getStatusHistory() == null) order.setStatusHistory(new ArrayList<>());
         order.getStatusHistory().add(new OrderStatusEvent(

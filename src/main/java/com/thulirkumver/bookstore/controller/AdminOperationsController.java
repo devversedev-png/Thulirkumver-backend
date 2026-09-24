@@ -3,6 +3,7 @@ package com.thulirkumver.bookstore.controller;
 import com.thulirkumver.bookstore.dto.AdminCustomerResponse;
 import com.thulirkumver.bookstore.dto.AdminOrderActionResponse;
 import com.thulirkumver.bookstore.dto.AdminOrderStatusRequest;
+import com.thulirkumver.bookstore.dto.AdminPaymentUpdateRequest;
 import com.thulirkumver.bookstore.model.Offer;
 import com.thulirkumver.bookstore.model.Order;
 import com.thulirkumver.bookstore.model.User;
@@ -54,6 +55,12 @@ public class AdminOperationsController {
     @GetMapping("/orders/{id}/actions")
     public List<AdminOrderActionResponse> orderActions(@PathVariable String id) {
         return orderService.getAvailableActions(id);
+    }
+
+    @PutMapping("/orders/{id}/payment")
+    public Order updateOrderPayment(@PathVariable String id,
+                                    @Valid @RequestBody AdminPaymentUpdateRequest request) {
+        return orderService.updatePayment(id, request.amountPaid());
     }
 
     @GetMapping("/customers")

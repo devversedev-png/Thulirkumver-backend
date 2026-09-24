@@ -7,6 +7,10 @@ import com.thulirkumver.bookstore.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import com.thulirkumver.bookstore.dto.ChangePasswordRequest;
+import com.thulirkumver.bookstore.dto.ProfileUpdateRequest;
+
+import org.springframework.security.core.Authentication;
 
 import java.util.Map;
 
@@ -44,6 +48,37 @@ public class AuthController {
             return ResponseEntity.ok(authService.adminLogin(request));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("message", ex.getMessage()));
+        }
+    }
+
+    @PutMapping("/profile")
+    public ResponseEntity<?> updateProfile(
+            Authentication authentication,
+            @Valid @RequestBody ProfileUpdateRequest request
+    ) {
+        try {
+
+            String email =
+                    authentication.getName();
+
+            AuthResponse response =
+                    authService.updateProfile(
+                            email,
+                            request
+                    );
+
+            return ResponseEntity.ok(response);
+
+        } catch (IllegalArgumentException ex) {
+
+            return ResponseEntity
+                    .badRequest()
+                    .body(
+                            Map.of(
+                                    "message",
+                                    ex.getMessage()
+                            )
+                    );
         }
     }
 }

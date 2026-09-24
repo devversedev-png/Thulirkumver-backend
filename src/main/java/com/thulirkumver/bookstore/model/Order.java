@@ -20,6 +20,7 @@ public class Order {
     private Address deliveryAddress;
     private String paymentMethod;
     private String paymentStatus;
+    private double amountPaid;
     private String status;
     private String courierName;
     private String trackingNumber;
@@ -56,6 +57,8 @@ public class Order {
     public void setPaymentMethod(String paymentMethod) { this.paymentMethod = paymentMethod; }
     public String getPaymentStatus() { return paymentStatus; }
     public void setPaymentStatus(String paymentStatus) { this.paymentStatus = paymentStatus; }
+    public double getAmountPaid() { return amountPaid; }
+    public void setAmountPaid(double amountPaid) { this.amountPaid = amountPaid; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public String getCourierName() { return courierName; }
