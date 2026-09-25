@@ -42,6 +42,28 @@ public class OrderService {
         this.offerRepository = offerRepository;
     }
 
+    public synchronized double calculateCheckoutTotal(String email, com.thulirkumver.bookstore.model.Address address, String couponCode) {
+        User user = userService.getByEmail(email);
+        if (user.getCart() == null || user.getCart().isEmpty()) {
+            throw new IllegalArgumentException("Cart is empty");
+        }
+
+        double subtotal = 0;
+        for (CartItem cartItem : user.getCart()) {
+            Book book = bookRepository.findById(cartItem.getBookId())
+                    .orElseThrow(() -> new IllegalArgumentException("One of the books is unavailable"));
+            if (!book.isAvailable() || book.getStock() < cartItem.getQuantity()) {
+                throw new IllegalArgumentException(book.getTitle() + " does not have enough stock");
+            }
+            subtotal += book.getPrice() * cartItem.getQuantity();
+        }
+
+        double shipping = subtotal >= 499 ? 0 : 60;
+        Offer appliedOffer = resolveOffer(couponCode, subtotal);
+        double discount = appliedOffer == null ? 0 : calculateDiscount(appliedOffer, subtotal);
+        return round(Math.max(0, subtotal + shipping - discount));
+    }
+
     public synchronized Order placeOrder(String email, CheckoutRequest request) {
         User user = userService.getByEmail(email);
         if (user.getCart() == null || user.getCart().isEmpty()) {

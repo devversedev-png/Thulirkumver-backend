@@ -20,6 +20,8 @@ public class Order {
     private Address deliveryAddress;
     private String paymentMethod;
     private String paymentStatus;
+    private String razorpayOrderId;
+    private String razorpayPaymentId;
     private double amountPaid;
     private String status;
     private String courierName;
@@ -57,6 +59,10 @@ public class Order {
     public void setPaymentMethod(String paymentMethod) { this.paymentMethod = paymentMethod; }
     public String getPaymentStatus() { return paymentStatus; }
     public void setPaymentStatus(String paymentStatus) { this.paymentStatus = paymentStatus; }
+    public String getRazorpayOrderId() { return razorpayOrderId; }
+    public void setRazorpayOrderId(String razorpayOrderId) { this.razorpayOrderId = razorpayOrderId; }
+    public String getRazorpayPaymentId() { return razorpayPaymentId; }
+    public void setRazorpayPaymentId(String razorpayPaymentId) { this.razorpayPaymentId = razorpayPaymentId; }
     public double getAmountPaid() { return amountPaid; }
     public void setAmountPaid(double amountPaid) { this.amountPaid = amountPaid; }
     public String getStatus() { return status; }
