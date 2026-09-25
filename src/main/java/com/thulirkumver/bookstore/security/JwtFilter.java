@@ -53,8 +53,9 @@ public class JwtFilter extends OncePerRequestFilter {
                 request.setAttribute(JWT_ERROR_ATTRIBUTE, "Missing bearer token");
             } else {
                 try {
-                    String email = jwtService.getEmail(token);
-                    var user = userService.getByEmail(email);
+                    String subject = jwtService.getSubject(token);
+                    var user = userService.getByTokenSubject(subject);
+                    String email = user.getEmail();
 
                     String role = user.getRole();
                     if (role == null || role.isBlank()) {

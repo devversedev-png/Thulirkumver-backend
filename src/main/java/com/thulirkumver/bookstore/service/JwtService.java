@@ -29,12 +29,17 @@ public class JwtService {
                 .compact();
     }
 
-    public String getEmail(String token) {
+    public String getSubject(String token) {
         return Jwts.parser()
                 .verifyWith(key)
                 .build()
                 .parseSignedClaims(token)
                 .getPayload()
                 .getSubject();
+    }
+
+    /** Backward-compatible name for older callers/tokens. */
+    public String getEmail(String token) {
+        return getSubject(token);
     }
 }

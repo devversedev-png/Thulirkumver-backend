@@ -196,7 +196,7 @@ public class AuthService {
 
     private AuthResponse response(User user) {
         return new AuthResponse(
-                jwtService.createToken(user.getEmail()),
+                jwtService.createToken(user.getId()),
                 user.getId(),
                 user.getName(),
                 user.getEmail(),

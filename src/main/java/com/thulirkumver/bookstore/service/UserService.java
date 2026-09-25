@@ -28,6 +28,24 @@ public class UserService {
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
     }
 
+    public User getById(String id) {
+        return userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+    }
+
+    /**
+     * New JWTs contain the immutable Mongo user id. Older JWTs contained the
+     * email, so keep an email fallback during the migration.
+     */
+    public User getByTokenSubject(String subject) {
+        if (subject == null || subject.isBlank()) {
+            throw new IllegalArgumentException("Invalid token subject");
+        }
+
+        return userRepository.findById(subject)
+                .orElseGet(() -> getByEmail(subject));
+    }
+
     public AccountResponse getAccount(String email) {
         User user = getByEmail(email);
         if (normalize(user)) user = userRepository.save(user);
@@ -275,9 +293,19 @@ public class UserService {
 
     private AccountResponse toResponse(User user) {
         normalize(user);
+
+        List<CartItem> cart = new ArrayList<>(user.getCart());
+        List<String> wishlist = new ArrayList<>(user.getWishlist());
+        List<Address> addresses = new ArrayList<>(user.getAddresses());
+
         return new AccountResponse(
-                user.getId(), user.getName(), user.getEmail(), user.getMobile(),
-                user.getWishlist(), user.getCart(), user.getAddresses()
+                user.getId(),
+                user.getName(),
+                user.getEmail(),
+                user.getMobile(),
+                wishlist,
+                cart,
+                addresses
         );
     }
 }
