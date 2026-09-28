@@ -344,46 +344,59 @@ public class HomeContentController {
 
     private int intField(Object value, int fallback) {
         if (value instanceof Number n) return n.intValue();
-        try { return value == null ? fallback : Integer.parseInt(String.valueOf(value)); }
-        catch (Exception ignored) { return fallback; }
+        try {
+            return value == null ? fallback : Integer.parseInt(String.valueOf(value));
+        } catch (Exception ignored) {
+            return fallback;
+        }
     }
 
     private Map<String, Object> defaultConfig(String key) {
         Map<String, Object> config = new HashMap<>();
+
         config.put("limit", 8);
+        config.put("mode", "AUTO");
 
         switch (key) {
+
             case "discounted" -> {
                 config.put("mode", "AUTO");
                 config.put("minDiscountPercent", 10);
             }
+
             case "top-selling" -> {
                 config.put("mode", "AUTO");
                 config.put("periodDays", 30);
                 config.put("basis", "QUANTITY");
             }
+
             case "highly-featured" -> {
                 config.put("mode", "FEATURED_FLAG");
             }
+
             case "cashback" -> {
                 config.put("mode", "MANUAL");
                 config.put("cashbackType", "PERCENT");
                 config.put("cashbackValue", 5);
                 config.put("maxCashback", 0);
             }
+
             case "new-arrivals" -> {
                 config.put("mode", "NEW_ARRIVAL_FLAG");
             }
+
             case "best-rated" -> {
                 config.put("mode", "AUTO");
-                config.put("minRating", 4.0);
+                config.put("minRating", 4);
                 config.put("minReviews", 5);
             }
+
             case "trending" -> {
                 config.put("mode", "AUTO");
                 config.put("periodDays", 7);
                 config.put("basis", "SALES");
             }
+
             case "recommended" -> {
                 config.put("mode", "MANUAL");
                 config.put("category", "");
@@ -391,6 +404,7 @@ public class HomeContentController {
                 config.put("sourceBookId", "");
             }
         }
+
         return config;
     }
 
@@ -400,8 +414,10 @@ public class HomeContentController {
         config.put("limit", intValue(config.get("limit"), 8, 1, 30));
 
         switch (key) {
-            case "discounted" -> config.put("minDiscountPercent", doubleValue(config.get("minDiscountPercent"), 10, 0, 100));
-            case "top-selling", "trending" -> config.put("periodDays", intValue(config.get("periodDays"), key.equals("trending") ? 7 : 30, 1, 365));
+            case "discounted" ->
+                    config.put("minDiscountPercent", doubleValue(config.get("minDiscountPercent"), 10, 0, 100));
+            case "top-selling", "trending" ->
+                    config.put("periodDays", intValue(config.get("periodDays"), key.equals("trending") ? 7 : 30, 1, 365));
             case "best-rated" -> {
                 config.put("minRating", doubleValue(config.get("minRating"), 4, 0, 5));
                 config.put("minReviews", intValue(config.get("minReviews"), 5, 0, 100000));
@@ -418,81 +434,259 @@ public class HomeContentController {
                                     List<Book> allBooks,
                                     Map<String, Book> byId,
                                     Map<String, Long> defaultSales) {
+
         String key = section.getKey();
-        Map<String, Object> config = section.getConfig() == null ? Map.of() : section.getConfig();
+
+        Map<String, Object> config =
+                section.getConfig() == null ? Map.of() : section.getConfig();
+
         int limit = intValue(config.get("limit"), 8, 1, 30);
-        List<Book> candidates = allBooks.stream().filter(Book::isAvailable).toList();
+
+        List<Book> candidates = allBooks.stream()
+                .filter(Book::isAvailable)
+                .toList();
+
+        /*
+         * MANUAL MODE
+         * -----------------------------
+         * Every home section supports manual book selection.
+         * The selected IDs are stored in HomeSection.bookIds.
+         */
+        String mode = stringValue(config.get("mode"), "AUTO");
+
+        if ("MANUAL".equalsIgnoreCase(mode)) {
+            return manualBooks(section, byId, limit);
+        }
 
         return switch (key) {
+
             case "discounted" -> {
-                double minPercent = doubleValue(config.get("minDiscountPercent"), 10, 0, 100);
-                List<Book> result = candidates.stream()
-                        .filter(book -> book.getOriginalPrice() > book.getPrice() && discountPercent(book) >= minPercent)
-                        .sorted(Comparator.comparingDouble(this::discountPercent).reversed())
+
+                double minPercent = doubleValue(
+                        config.get("minDiscountPercent"),
+                        10,
+                        0,
+                        100
+                );
+
+                yield candidates.stream()
+                        .filter(book ->
+                                book.getOriginalPrice() > book.getPrice()
+                                        && discountPercent(book) >= minPercent
+                        )
+                        .sorted(
+                                Comparator.comparingDouble(
+                                        this::discountPercent
+                                ).reversed()
+                        )
                         .limit(limit)
                         .toList();
-                yield result;
             }
+
             case "top-selling" -> {
-                int days = intValue(config.get("periodDays"), 30, 1, 365);
-                String basis = stringValue(config.get("basis"), "QUANTITY");
+
+                int days = intValue(
+                        config.get("periodDays"),
+                        30,
+                        1,
+                        365
+                );
+
+                String basis = stringValue(
+                        config.get("basis"),
+                        "QUANTITY"
+                );
+
                 if ("REVENUE".equalsIgnoreCase(basis)) {
-                    Map<String, Double> revenue = salesRevenueForDays(days);
+
+                    Map<String, Double> revenue =
+                            salesRevenueForDays(days);
+
                     yield candidates.stream()
-                            .filter(book -> revenue.getOrDefault(book.getId(), 0.0) > 0)
-                            .sorted(Comparator.comparingDouble((Book book) -> revenue.getOrDefault(book.getId(), 0.0)).reversed())
+                            .filter(book ->
+                                    revenue.getOrDefault(
+                                            book.getId(),
+                                            0.0
+                                    ) > 0
+                            )
+                            .sorted(
+                                    Comparator.comparingDouble(
+                                            (Book book) ->
+                                                    revenue.getOrDefault(
+                                                            book.getId(),
+                                                            0.0
+                                                    )
+                                    ).reversed()
+                            )
                             .limit(limit)
                             .toList();
                 }
+
                 Map<String, Long> sales = salesForDays(days);
+
                 yield candidates.stream()
-                        .filter(book -> sales.getOrDefault(book.getId(), 0L) > 0)
-                        .sorted(Comparator.comparingLong((Book book) -> sales.getOrDefault(book.getId(), 0L)).reversed())
+                        .filter(book ->
+                                sales.getOrDefault(
+                                        book.getId(),
+                                        0L
+                                ) > 0
+                        )
+                        .sorted(
+                                Comparator.comparingLong(
+                                        (Book book) ->
+                                                sales.getOrDefault(
+                                                        book.getId(),
+                                                        0L
+                                                )
+                                ).reversed()
+                        )
                         .limit(limit)
                         .toList();
             }
+
             case "highly-featured" -> {
-                String mode = stringValue(config.get("mode"), "FEATURED_FLAG");
-                if ("MANUAL".equalsIgnoreCase(mode)) {
+
+                String sectionMode = stringValue(
+                        config.get("mode"),
+                        "FEATURED_FLAG"
+                );
+
+                if ("MANUAL".equalsIgnoreCase(sectionMode)) {
                     yield manualBooks(section, byId, limit);
                 }
-                yield candidates.stream().filter(Book::isFeatured).limit(limit).toList();
-            }
-            case "cashback" -> manualBooks(section, byId, limit);
-            case "new-arrivals" -> {
-                String mode = stringValue(config.get("mode"), "NEW_ARRIVAL_FLAG");
-                if ("MANUAL".equalsIgnoreCase(mode)) yield manualBooks(section, byId, limit);
-                yield candidates.stream().filter(Book::isNewArrival).limit(limit).toList();
-            }
-            case "best-rated" -> {
-                double minRating = doubleValue(config.get("minRating"), 4, 0, 5);
-                int minReviews = intValue(config.get("minReviews"), 5, 0, 100000);
+
                 yield candidates.stream()
-                        .filter(book -> book.getRating() >= minRating && book.getReviewCount() >= minReviews)
-                        .sorted(Comparator.comparingDouble(Book::getRating).reversed()
-                                .thenComparing(Comparator.comparingInt(Book::getReviewCount).reversed()))
+                        .filter(Book::isFeatured)
                         .limit(limit)
                         .toList();
             }
+
+            case "cashback" -> {
+
+                yield manualBooks(section, byId, limit);
+            }
+
+            case "new-arrivals" -> {
+
+                String sectionMode = stringValue(
+                        config.get("mode"),
+                        "NEW_ARRIVAL_FLAG"
+                );
+
+                if ("MANUAL".equalsIgnoreCase(sectionMode)) {
+                    yield manualBooks(section, byId, limit);
+                }
+
+                yield candidates.stream()
+                        .filter(Book::isNewArrival)
+                        .limit(limit)
+                        .toList();
+            }
+
+            case "best-rated" -> {
+
+                double minRating = doubleValue(
+                        config.get("minRating"),
+                        4,
+                        0,
+                        5
+                );
+
+                int minReviews = intValue(
+                        config.get("minReviews"),
+                        5,
+                        0,
+                        100000
+                );
+
+                yield candidates.stream()
+                        .filter(book ->
+                                book.getRating() >= minRating
+                                        && book.getReviewCount() >= minReviews
+                        )
+                        .sorted(
+                                Comparator.comparingDouble(
+                                                Book::getRating
+                                        ).reversed()
+                                        .thenComparing(
+                                                Comparator.comparingInt(
+                                                        Book::getReviewCount
+                                                ).reversed()
+                                        )
+                        )
+                        .limit(limit)
+                        .toList();
+            }
+
             case "trending" -> {
-                int days = intValue(config.get("periodDays"), 7, 1, 365);
-                String basis = stringValue(config.get("basis"), "SALES");
+
+                int days = intValue(
+                        config.get("periodDays"),
+                        7,
+                        1,
+                        365
+                );
+
+                String basis = stringValue(
+                        config.get("basis"),
+                        "SALES"
+                );
+
                 if ("RATING".equalsIgnoreCase(basis)) {
+
                     yield candidates.stream()
-                            .sorted(Comparator.comparingDouble(Book::getRating).reversed()
-                                    .thenComparing(Comparator.comparingInt(Book::getReviewCount).reversed()))
+                            .sorted(
+                                    Comparator.comparingDouble(
+                                                    Book::getRating
+                                            ).reversed()
+                                            .thenComparing(
+                                                    Comparator.comparingInt(
+                                                            Book::getReviewCount
+                                                    ).reversed()
+                                            )
+                            )
                             .limit(limit)
                             .toList();
                 }
-                Map<String, Long> sales = salesForDays(days);
+
+                Map<String, Long> sales =
+                        salesForDays(days);
+
                 yield candidates.stream()
-                        .filter(book -> sales.getOrDefault(book.getId(), 0L) > 0)
-                        .sorted(Comparator.comparingLong((Book book) -> sales.getOrDefault(book.getId(), 0L)).reversed())
+                        .filter(book ->
+                                sales.getOrDefault(
+                                        book.getId(),
+                                        0L
+                                ) > 0
+                        )
+                        .sorted(
+                                Comparator.comparingLong(
+                                        (Book book) ->
+                                                sales.getOrDefault(
+                                                        book.getId(),
+                                                        0L
+                                                )
+                                ).reversed()
+                        )
                         .limit(limit)
                         .toList();
             }
-            case "recommended" -> resolveRecommended(section, candidates, byId, limit);
-            default -> manualBooks(section, byId, limit);
+
+            case "recommended" -> {
+
+                yield resolveRecommended(
+                        section,
+                        candidates,
+                        byId,
+                        limit
+                );
+            }
+
+            default -> manualBooks(
+                    section,
+                    byId,
+                    limit
+            );
         };
     }
 
