@@ -11,6 +11,7 @@ server:
 
 app:
   jwt-secret: ${JWT_SECRET}
+  jwt-expiration-days: ${JWT_EXPIRATION_DAYS:30}
   cors-allowed-origin: ${CORS_ALLOWED_ORIGIN}
   admin-name: ${ADMIN_NAME}
   admin-email: ${ADMIN_EMAIL}

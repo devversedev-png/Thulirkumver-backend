@@ -13,18 +13,35 @@ import java.util.Date;
 
 @Service
 public class JwtService {
-    private final SecretKey key;
 
-    public JwtService(@Value("${app.jwt-secret}") String secret) {
-        this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+    private final SecretKey key;
+    private final long expirationDays;
+
+    public JwtService(
+            @Value("${app.jwt-secret}") String secret,
+            @Value("${app.jwt-expiration-days:30}") long expirationDays
+    ) {
+        this.key = Keys.hmacShaKeyFor(
+                secret.getBytes(StandardCharsets.UTF_8)
+        );
+
+        this.expirationDays = expirationDays;
     }
 
     public String createToken(String email) {
         Instant now = Instant.now();
+
         return Jwts.builder()
                 .subject(email)
                 .issuedAt(Date.from(now))
-                .expiration(Date.from(now.plus(7, ChronoUnit.DAYS)))
+                .expiration(
+                        Date.from(
+                                now.plus(
+                                        expirationDays,
+                                        ChronoUnit.DAYS
+                                )
+                        )
+                )
                 .signWith(key)
                 .compact();
     }
