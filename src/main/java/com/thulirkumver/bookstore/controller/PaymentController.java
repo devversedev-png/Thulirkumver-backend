@@ -103,10 +103,18 @@ public class PaymentController {
                 ));
             }
 
-            // Verify the Razorpay order amount against the server-side cart total.
-            Order razorpayOrder = razorpayClient.orders.fetch(request.razorpayOrderId());
-            long razorpayAmount = Long.parseLong(String.valueOf(razorpayOrder.get("amount")));
+            // Avoid creating the same bookstore order twice if the verification callback is repeated.
+            var existing = orderRepository.findByRazorpayPaymentId(request.razorpayPaymentId());
+            if (existing.isPresent()) {
+                return ResponseEntity.ok(Map.of(
+                        "success", true,
+                        "message", "Payment already verified",
+                        "paymentId", request.razorpayPaymentId(),
+                        "order", existing.get()
+                ));
+            }
 
+            // One Razorpay call: the payment carries both order_id and amount.
             Payment razorpayPayment = razorpayClient.payments.fetch(request.razorpayPaymentId());
             String paymentOrderId = String.valueOf(razorpayPayment.get("order_id"));
             String paymentStatus = String.valueOf(razorpayPayment.get("status"));
@@ -133,21 +141,10 @@ public class PaymentController {
             );
             long expectedAmount = Math.round(expectedTotal * 100);
 
-            if (razorpayAmount != expectedAmount || paymentAmount != expectedAmount) {
+            if (paymentAmount != expectedAmount) {
                 return ResponseEntity.badRequest().body(Map.of(
                         "success", false,
                         "message", "Payment amount does not match the current order total"
-                ));
-            }
-
-            // Avoid creating the same bookstore order twice if the verification callback is repeated.
-            var existing = orderRepository.findByRazorpayPaymentId(request.razorpayPaymentId());
-            if (existing.isPresent()) {
-                return ResponseEntity.ok(Map.of(
-                        "success", true,
-                        "message", "Payment already verified",
-                        "paymentId", request.razorpayPaymentId(),
-                        "order", existing.get()
                 ));
             }
 
