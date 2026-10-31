@@ -46,6 +46,32 @@ public class JwtService {
                 .compact();
     }
 
+    /** Short-lived proof that a mobile number passed OTP verification. */
+    public String createOtpToken(String mobile10, String purpose) {
+        Instant now = Instant.now();
+
+        return Jwts.builder()
+                .subject("otp:" + mobile10)
+                .claim("typ", "otp")
+                .claim("purpose", purpose)
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(now.plus(10, ChronoUnit.MINUTES)))
+                .signWith(key)
+                .compact();
+    }
+
+    public boolean isValidOtpToken(String token, String mobile10, String purpose) {
+        var claims = Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+
+        return "otp".equals(claims.get("typ", String.class))
+                && purpose.equals(claims.get("purpose", String.class))
+                && ("otp:" + mobile10).equals(claims.getSubject());
+    }
+
     public String getSubject(String token) {
         return Jwts.parser()
                 .verifyWith(key)

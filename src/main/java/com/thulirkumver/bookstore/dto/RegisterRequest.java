@@ -8,6 +8,7 @@ public record RegisterRequest(
         @NotBlank String name,
         @Email @NotBlank String email,
         String mobile,
-        @NotBlank @Size(min = 6) String password
+        @NotBlank @Size(min = 6) String password,
+        String otpToken
 ) {
 }

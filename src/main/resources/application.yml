@@ -20,3 +20,29 @@ app:
 razorpay:
   key-id: ${RAZORPAY_KEY_ID}
   key-secret: ${RAZORPAY_KEY_SECRET}
+
+# ---- MSG91 OTP (mobile verification and OTP login) ----
+# Off by default so the app behaves exactly as before until you turn it on.
+msg91:
+  enabled: ${MSG91_ENABLED:false}
+  auth-key: ${MSG91_AUTH_KEY:}
+  template-id: ${MSG91_TEMPLATE_ID:}
+  otp-length: ${MSG91_OTP_LENGTH:6}
+  otp-expiry-minutes: ${MSG91_OTP_EXPIRY_MINUTES:10}
+  # When true, new accounts must verify their mobile with an OTP.
+  required-for-registration: ${MSG91_REQUIRED_FOR_REGISTRATION:true}
+
+# ---- Amazon Selling Partner API (orders for the admin page) ----
+amazon:
+  enabled: ${AMAZON_ENABLED:false}
+  # India is served by the Europe endpoint; marketplace A21TJRUUN4KGV is Amazon.in
+  endpoint: ${AMAZON_SP_API_ENDPOINT:https://sellingpartnerapi-eu.amazon.com}
+  marketplace-ids: ${AMAZON_MARKETPLACE_IDS:A21TJRUUN4KGV}
+  lwa-client-id: ${AMAZON_LWA_CLIENT_ID:}
+  lwa-client-secret: ${AMAZON_LWA_CLIENT_SECRET:}
+  refresh-token: ${AMAZON_REFRESH_TOKEN:}
+  included-data: ${AMAZON_INCLUDED_DATA:BUYER,RECIPIENT,FULFILLMENT,PROCEEDS}
+  initial-lookback-days: ${AMAZON_INITIAL_LOOKBACK_DAYS:30}
+  sync-interval-ms: ${AMAZON_SYNC_INTERVAL_MS:900000}
+  # Debug only: also keep each order's raw Amazon JSON (contains buyer data).
+  store-raw: ${AMAZON_STORE_RAW:false}

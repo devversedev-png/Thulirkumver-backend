@@ -1,23 +1,29 @@
 package com.thulirkumver.bookstore.service;
 
 import com.thulirkumver.bookstore.dto.*;
+import com.thulirkumver.bookstore.integration.msg91.MobileNumbers;
+import com.thulirkumver.bookstore.integration.msg91.OtpService;
 import com.thulirkumver.bookstore.model.User;
 import com.thulirkumver.bookstore.repository.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.List;
 
 @Service
 public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final OtpService otpService;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtService jwtService) {
+    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder,
+                       JwtService jwtService, OtpService otpService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.otpService = otpService;
     }
 
     public AuthResponse register(RegisterRequest request) {
@@ -25,11 +31,24 @@ public class AuthService {
             throw new IllegalArgumentException("Email already registered");
         }
 
+        String mobile = request.mobile();
+        boolean mobileVerified = false;
+
+        if (otpService.isRequiredForRegistration()) {
+            mobile = MobileNumbers.normalize(request.mobile());
+            otpService.requireRegistrationToken(request.otpToken(), mobile);
+            if (!findByMobile(mobile).isEmpty()) {
+                throw new IllegalArgumentException("This mobile number is already registered");
+            }
+            mobileVerified = true;
+        }
+
         Instant now = Instant.now();
         User user = new User();
         user.setName(request.name().trim());
         user.setEmail(request.email().trim().toLowerCase());
-        user.setMobile(request.mobile());
+        user.setMobile(mobile);
+        user.setMobileVerified(mobileVerified);
         user.setPassword(passwordEncoder.encode(request.password()));
         user.setRole("CUSTOMER");
         user.setCreatedAt(now);
@@ -43,6 +62,36 @@ public class AuthService {
         User user = findAndCheckPassword(request);
         if ("ADMIN".equalsIgnoreCase(user.getRole())) {
             throw new IllegalArgumentException("Use the admin login page");
+        }
+        return response(markLogin(user));
+    }
+
+    /** Sends a login OTP, but only to a mobile that belongs to a customer account. */
+    public void sendLoginOtp(String rawMobile) {
+        String mobile = MobileNumbers.normalize(rawMobile);
+        requireCustomerForMobile(mobile);
+        otpService.send(mobile, OtpService.Purpose.LOGIN);
+    }
+
+    public void sendRegisterOtp(String rawMobile) {
+        String mobile = MobileNumbers.normalize(rawMobile);
+        if (!findByMobile(mobile).isEmpty()) {
+            throw new IllegalArgumentException("This mobile number is already registered. Please log in instead");
+        }
+        otpService.send(mobile, OtpService.Purpose.REGISTER);
+    }
+
+    public String verifyRegisterOtp(String rawMobile, String otp) {
+        return otpService.verifyForRegistration(MobileNumbers.normalize(rawMobile), otp);
+    }
+
+    public AuthResponse loginWithOtp(String rawMobile, String otp) {
+        String mobile = MobileNumbers.normalize(rawMobile);
+        User user = requireCustomerForMobile(mobile);
+        otpService.verifyForLogin(mobile, otp);
+
+        if (!user.isMobileVerified()) {
+            user.setMobileVerified(true);
         }
         return response(markLogin(user));
     }
@@ -170,6 +219,21 @@ public class AuthService {
         );
 
         userRepository.save(user);
+    }
+
+    private List<User> findByMobile(String mobile10) {
+        return userRepository.findByMobileIn(MobileNumbers.storedVariants(mobile10));
+    }
+
+    private User requireCustomerForMobile(String mobile10) {
+        List<User> matches = findByMobile(mobile10).stream()
+                .filter(user -> !"ADMIN".equalsIgnoreCase(user.getRole()))
+                .toList();
+
+        if (matches.isEmpty()) {
+            throw new IllegalArgumentException("No account found for this mobile number. Please register first");
+        }
+        return matches.get(0);
     }
 
     private User findAndCheckPassword(LoginRequest request) {

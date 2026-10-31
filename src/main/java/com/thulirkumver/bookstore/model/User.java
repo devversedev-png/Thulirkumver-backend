@@ -16,6 +16,7 @@ public class User {
     @Indexed(unique = true)
     private String email;
     private String mobile;
+    private boolean mobileVerified;
     private String password;
     private String role = "CUSTOMER";
     private List<String> wishlist = new ArrayList<>();
@@ -35,6 +36,8 @@ public class User {
     public void setEmail(String email) { this.email = email; }
     public String getMobile() { return mobile; }
     public void setMobile(String mobile) { this.mobile = mobile; }
+    public boolean isMobileVerified() { return mobileVerified; }
+    public void setMobileVerified(boolean mobileVerified) { this.mobileVerified = mobileVerified; }
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
     public String getRole() { return role; }
