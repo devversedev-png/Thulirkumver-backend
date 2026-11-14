@@ -433,7 +433,7 @@ public class HomeContentController {
         switch (key) {
 
             case "discounted" -> {
-                config.put("mode", "AUTO");
+                config.put("mode", "MANUAL");
                 config.put("minDiscountPercent", 10);
             }
 
@@ -534,26 +534,7 @@ public class HomeContentController {
         return switch (key) {
 
             case "discounted" -> {
-
-                double minPercent = doubleValue(
-                        config.get("minDiscountPercent"),
-                        10,
-                        0,
-                        100
-                );
-
-                yield candidates.stream()
-                        .filter(book ->
-                                book.getOriginalPrice() > book.getPrice()
-                                        && discountPercent(book) >= minPercent
-                        )
-                        .sorted(
-                                Comparator.comparingDouble(
-                                        this::discountPercent
-                                ).reversed()
-                        )
-                        .limit(limit)
-                        .toList();
+                yield manualBooks(section, byId, limit);
             }
 
             case "top-selling" -> {
