@@ -33,6 +33,12 @@ public class Order {
     private String offerCode;
     private double total;
     private boolean stockRestored;
+    private long cashbackEarnedPaise;
+    /** Only new orders use these. Old MongoDB records deserialize to 0. */
+    private long bogoDiscountPaise;
+    private long walletRedeemedPaise;
+    private long razorpayPaidPaise;
+    private boolean cashbackReversed;
     private Instant createdAt;
     private Instant statusUpdatedAt;
 
@@ -85,6 +91,16 @@ public class Order {
     public void setTotal(double total) { this.total = total; }
     public boolean isStockRestored() { return stockRestored; }
     public void setStockRestored(boolean stockRestored) { this.stockRestored = stockRestored; }
+    public long getBogoDiscountPaise() { return bogoDiscountPaise; }
+    public void setBogoDiscountPaise(long value) { bogoDiscountPaise = value; }
+    public long getWalletRedeemedPaise() { return walletRedeemedPaise; }
+    public void setWalletRedeemedPaise(long value) { walletRedeemedPaise = value; }
+    public long getRazorpayPaidPaise() { return razorpayPaidPaise; }
+    public void setRazorpayPaidPaise(long value) { razorpayPaidPaise = value; }
+    public long getCashbackEarnedPaise() { return cashbackEarnedPaise; }
+    public void setCashbackEarnedPaise(long value) { cashbackEarnedPaise = value; }
+    public boolean isCashbackReversed() { return cashbackReversed; }
+    public void setCashbackReversed(boolean value) { cashbackReversed = value; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getStatusUpdatedAt() { return statusUpdatedAt; }

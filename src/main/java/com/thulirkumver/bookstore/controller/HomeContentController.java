@@ -52,6 +52,11 @@ public class HomeContentController {
                     "description", "Books marked as featured or selected manually by the admin."
             ),
             Map.of(
+                    "key", "bogo",
+                    "title", "Buy 1 Get 1 Free",
+                    "description", "Buy two copies of a selected title and get one copy free."
+            ),
+            Map.of(
                     "key", "cashback",
                     "title", "Cashback Books",
                     "description", "Books selected for cashback promotions."
@@ -106,6 +111,8 @@ public class HomeContentController {
 
         return safeFindAllSections().stream()
                 .filter(HomeSection::isActive)
+                .filter(section -> !"bogo".equals(section.getKey()) || section.getConfig() == null
+                        || !Boolean.FALSE.equals(section.getConfig().get("enabled")))
                 .map(section -> {
                     List<Book> resolved = resolveBooks(section, books, byId, sales);
                     if (resolved.isEmpty()) return null;
@@ -119,6 +126,7 @@ public class HomeContentController {
                     result.put("displayOrder", section.getDisplayOrder());
                     result.put("config", section.getConfig());
                     result.put("bookIds", resolved.stream().map(Book::getId).toList());
+                    if ("bogo".equals(section.getKey())) result.put("eligibleBookIds", section.getBookIds());
                     result.put("books", resolved);
                     return result;
                 })
@@ -138,7 +146,9 @@ public class HomeContentController {
 
     @PutMapping("/admin/home-sections")
     public List<HomeSection> saveSections(@RequestBody List<HomeSection> sections) {
-        pricingService.normalizeLegacyBooks();
+        boolean changesBookPrices = sections != null && sections.stream().anyMatch(
+                section -> section != null && "discounted".equals(section.getKey()));
+        if (changesBookPrices) pricingService.normalizeLegacyBooks();
         List<HomeSection> saved = new ArrayList<>();
         for (HomeSection incoming : sections == null ? List.<HomeSection>of() : sections) {
             if (incoming.getKey() == null || incoming.getKey().isBlank()) continue;
@@ -154,7 +164,7 @@ public class HomeContentController {
             target.setConfig(normalizeConfig(incoming.getKey(), incoming.getConfig()));
             saved.add(safeSaveSection(target));
         }
-        pricingService.syncFromStoredSection();
+        if (changesBookPrices) pricingService.syncFromStoredSection();
         return ensureDefaultSections();
     }
 
@@ -166,7 +176,7 @@ public class HomeContentController {
                     org.springframework.http.HttpStatus.BAD_REQUEST, "Unknown home section");
         }
         // Give any pre-existing book a normal selling price first, while the old promotion config is still stored.
-        pricingService.normalizeLegacyBooks();
+        if ("discounted".equals(key)) pricingService.normalizeLegacyBooks();
         HomeSection target = safeFindSectionByKey(key).orElseGet(HomeSection::new);
         Map<String, Object> config = normalizeConfig(key, incoming.getConfig());
         List<String> ids = incoming.getBookIds() == null ? List.of() : incoming.getBookIds().stream().distinct().toList();
@@ -444,6 +454,12 @@ public class HomeContentController {
                 config.put("mode", "FEATURED_FLAG");
             }
 
+            case "bogo" -> {
+                config.put("mode", "MANUAL");
+                config.put("enabled", true);
+                config.put("limit", 30);
+            }
+
             case "cashback" -> {
                 config.put("mode", "MANUAL");
                 config.put("perBookCashbacks", new LinkedHashMap<String, Object>());
@@ -489,6 +505,10 @@ public class HomeContentController {
             case "best-rated" -> {
                 config.put("minRating", doubleValue(config.get("minRating"), 4, 0, 5));
                 config.put("minReviews", intValue(config.get("minReviews"), 5, 0, 100000));
+            }
+            case "bogo" -> {
+                config.put("mode", "MANUAL");
+                config.put("enabled", !Boolean.FALSE.equals(config.get("enabled")));
             }
             case "cashback" -> {
                 config.remove("cashbackType");

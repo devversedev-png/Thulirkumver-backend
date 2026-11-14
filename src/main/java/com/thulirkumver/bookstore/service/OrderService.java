@@ -7,6 +7,7 @@ import com.thulirkumver.bookstore.repository.BookRepository;
 import com.thulirkumver.bookstore.repository.OfferRepository;
 import com.thulirkumver.bookstore.repository.OrderRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -34,12 +35,20 @@ public class OrderService {
     private final BookRepository bookRepository;
     private final UserService userService;
     private final OfferRepository offerRepository;
+    private final CashbackRulesService cashbackRules;
+    private final WalletService walletService;
+    private final BogoRulesService bogoRules;
 
-    public OrderService(OrderRepository orderRepository, BookRepository bookRepository, UserService userService, OfferRepository offerRepository) {
+    public OrderService(OrderRepository orderRepository, BookRepository bookRepository, UserService userService,
+                        OfferRepository offerRepository, CashbackRulesService cashbackRules, WalletService walletService,
+                        BogoRulesService bogoRules) {
         this.orderRepository = orderRepository;
         this.bookRepository = bookRepository;
         this.userService = userService;
         this.offerRepository = offerRepository;
+        this.cashbackRules = cashbackRules;
+        this.walletService = walletService;
+        this.bogoRules = bogoRules;
     }
 
     public synchronized double calculateCheckoutTotal(String email, com.thulirkumver.bookstore.model.Address address, String couponCode) {
@@ -48,20 +57,141 @@ public class OrderService {
             throw new IllegalArgumentException("Cart is empty");
         }
 
+        List<OrderItem> items = new ArrayList<>();
         double subtotal = 0;
         for (CartItem cartItem : user.getCart()) {
             Book book = bookRepository.findById(cartItem.getBookId())
                     .orElseThrow(() -> new IllegalArgumentException("One of the books is unavailable"));
-            if (!book.isAvailable() || book.getStock() < cartItem.getQuantity()) {
+            if (cartItem.getQuantity() <= 0 || (!cartItem.isStockReserved()
+                    && (!book.isAvailable() || book.getStock() < cartItem.getQuantity()))) {
                 throw new IllegalArgumentException(book.getTitle() + " does not have enough stock");
             }
+            items.add(new OrderItem(book.getId(), book.getTitle(), book.getImage(), book.getPrice(), cartItem.getQuantity()));
             subtotal += book.getPrice() * cartItem.getQuantity();
         }
+        long bogoPaise = bogoRules.snapshot(items).discountPaise();
+        double merchandiseDue = round(Math.max(0, subtotal - bogoPaise / 100.0));
+        double shipping = merchandiseDue >= 499 ? 0 : 60;
+        Offer appliedOffer = resolveOffer(couponCode, merchandiseDue);
+        double couponDiscount = appliedOffer == null ? 0 : calculateDiscount(appliedOffer, merchandiseDue);
+        return round(Math.max(0, merchandiseDue + shipping - couponDiscount));
+    }
 
-        double shipping = subtotal >= 499 ? 0 : 60;
-        Offer appliedOffer = resolveOffer(couponCode, subtotal);
-        double discount = appliedOffer == null ? 0 : calculateDiscount(appliedOffer, subtotal);
-        return round(Math.max(0, subtotal + shipping - discount));
+    /** An immutable snapshot of order prices, eligible wallet redemption and cashback. */
+    public PaymentIntent prepareOnlineCheckout(String email, Address address, String couponCode) {
+        return prepareOnlineCheckout(email, address, couponCode, false);
+    }
+
+    public PaymentIntent prepareOnlineCheckout(String email, Address address, String couponCode, boolean useWallet) {
+        User user = userService.getByEmail(email);
+        if (user.getCart() == null || user.getCart().isEmpty())
+            throw new IllegalArgumentException("Cart is empty");
+        if (address == null) throw new IllegalArgumentException("Delivery address is required");
+
+        List<OrderItem> items = new ArrayList<>();
+        double subtotal = 0;
+        for (CartItem entry : user.getCart()) {
+            if (entry.getQuantity() <= 0) throw new IllegalArgumentException("Invalid cart quantity");
+            Book book = bookRepository.findById(entry.getBookId())
+                    .orElseThrow(() -> new IllegalArgumentException("One of the books is unavailable"));
+            if (!entry.isStockReserved() && (!book.isAvailable() || book.getStock() < entry.getQuantity()))
+                throw new IllegalArgumentException(book.getTitle() + " does not have enough stock");
+            items.add(new OrderItem(book.getId(), book.getTitle(), book.getImage(), book.getPrice(), entry.getQuantity()));
+            subtotal += book.getPrice() * entry.getQuantity();
+        }
+        BogoCalculator.Result bogo = bogoRules.snapshot(items);
+        double merchandiseDue = round(Math.max(0, subtotal - bogo.discountPaise() / 100.0));
+        double shipping = merchandiseDue >= 499 ? 0 : 60;
+        Offer offer = resolveOffer(couponCode, merchandiseDue);
+        double couponDiscount = offer == null ? 0 : calculateDiscount(offer, merchandiseDue);
+        long grossPaise = Math.round(round(Math.max(0, merchandiseDue + shipping - couponDiscount)) * 100);
+        if (grossPaise <= 0) throw new IllegalArgumentException("Invalid checkout amount");
+        long available = Math.max(0, walletService.balancePaise(user.getId()));
+        WalletAmounts amounts = WalletAmounts.calculate(grossPaise, available,
+                useWallet, cashbackRules.snapshotCashbackPaise(bogo.paidItems()));
+        long redeemedPaise = amounts.redeemedPaise();
+        long amountPaise = amounts.razorpayPaise();
+        PaymentIntent intent = new PaymentIntent();
+        intent.setUserId(user.getId());
+        intent.setItems(items);
+        intent.setAddress(address);
+        intent.setCouponCode(couponCode);
+        intent.setOfferCode(offer == null ? null : offer.getCode());
+        intent.setSubtotalPaise(Math.round(subtotal * 100));
+        intent.setBogoDiscountPaise(bogo.discountPaise());
+        intent.setShippingPaise(Math.round(shipping * 100));
+        // Make the stored components add up to the exact charged amount.
+        intent.setDiscountPaise(intent.getSubtotalPaise() + intent.getShippingPaise() - grossPaise);
+        intent.setAmountPaise(amountPaise);
+        intent.setWalletRedeemedPaise(redeemedPaise);
+        // Promotional cashback is earned only on the Razorpay-funded portion:
+        // a wallet-only purchase never produces self-replenishing cashback.
+        intent.setCashbackPaise(amounts.cashbackPaise());
+        return intent;
+    }
+
+    /** Called only from a MongoDB transaction after Razorpay confirms captured payment. */
+    public Order placeCapturedOrder(String email, PaymentIntent intent, String razorpayPaymentId) {
+        User user = userService.getByEmail(email);
+        if (!user.getId().equals(intent.getUserId())) throw new IllegalArgumentException("Payment does not belong to this account");
+        if (user.getCart() == null || user.getCart().size() != intent.getItems().size())
+            throw new CheckoutChangedException();
+
+        for (OrderItem item : intent.getItems()) {
+            CartItem inCart = user.getCart().stream()
+                    .filter(entry -> item.getBookId().equals(entry.getBookId())
+                            && entry.getQuantity() == item.getQuantity()).findFirst().orElse(null);
+            if (inCart == null) throw new CheckoutChangedException();
+            if (!inCart.isStockReserved()) {
+                Book book = bookRepository.findById(item.getBookId())
+                        .orElseThrow(CheckoutChangedException::new);
+                if (!book.isAvailable() || book.getStock() < item.getQuantity())
+                    throw new CheckoutChangedException();
+                book.setStock(book.getStock() - item.getQuantity());
+                bookRepository.save(book);
+            }
+        }
+        Instant now = Instant.now();
+        Order order = new Order();
+        order.setOrderNumber(makeOrderNumber());
+        order.setUserId(user.getId());
+        order.setCustomerName(user.getName());
+        order.setCustomerEmail(user.getEmail());
+        order.setCustomerMobile(user.getMobile());
+        order.setItems(new ArrayList<>(intent.getItems()));
+        order.setDeliveryAddress(userService.rememberCheckoutAddress(user, intent.getAddress()));
+        order.setPaymentMethod(intent.getAmountPaise() == 0 ? "WALLET" : "ONLINE");
+        order.setPaymentStatus("PAID");
+        // Paid amount includes both Razorpay money and redeemed wallet credit.
+        order.setAmountPaid((intent.getAmountPaise() + intent.getWalletRedeemedPaise()) / 100.0);
+        order.setWalletRedeemedPaise(intent.getWalletRedeemedPaise());
+        order.setRazorpayPaidPaise(intent.getAmountPaise());
+        order.setRazorpayOrderId(intent.getRazorpayOrderId());
+        order.setRazorpayPaymentId(razorpayPaymentId);
+        order.setStatus(BOOKING_CONFIRMED);
+        order.setStatusHistory(new ArrayList<>(List.of(new OrderStatusEvent(
+                BOOKING_CONFIRMED, intent.getAmountPaise() == 0 ? "Order paid with wallet" : "Order received and payment captured", now))));
+        order.setSubtotal(intent.getSubtotalPaise() / 100.0);
+        order.setShipping(intent.getShippingPaise() / 100.0);
+        order.setDiscount(intent.getDiscountPaise() / 100.0);
+        order.setBogoDiscountPaise(intent.getBogoDiscountPaise());
+        order.setOfferCode(intent.getOfferCode());
+        order.setTotal((intent.getAmountPaise() + intent.getWalletRedeemedPaise()) / 100.0);
+        order.setCashbackEarnedPaise(intent.getCashbackPaise());
+        order.setCashbackReversed(false);
+        order.setStockRestored(false);
+        order.setCreatedAt(now);
+        order.setStatusUpdatedAt(now);
+        Order saved = orderRepository.save(order);
+        user.getCart().clear();
+        userService.save(user);
+        return saved;
+    }
+
+    public static class CheckoutChangedException extends IllegalStateException {
+        public CheckoutChangedException() {
+            super("Your cart or reserved stock changed after payment started. Payment captured; contact support for review/refund.");
+        }
     }
 
     public synchronized Order placeOrder(String email, CheckoutRequest request) {
@@ -92,9 +222,12 @@ public class OrderService {
             subtotal += book.getPrice() * cartItem.getQuantity();
         }
 
-        double shipping = subtotal >= 499 ? 0 : 60;
-        Offer appliedOffer = resolveOffer(request.couponCode(), subtotal);
-        double discount = appliedOffer == null ? 0 : calculateDiscount(appliedOffer, subtotal);
+        BogoCalculator.Result bogo = bogoRules.snapshot(orderItems);
+        double merchandiseDue = round(Math.max(0, subtotal - bogo.discountPaise() / 100.0));
+        double shipping = merchandiseDue >= 499 ? 0 : 60;
+        Offer appliedOffer = resolveOffer(request.couponCode(), merchandiseDue);
+        double couponDiscount = appliedOffer == null ? 0 : calculateDiscount(appliedOffer, merchandiseDue);
+        double discount = bogo.discountPaise() / 100.0 + couponDiscount;
         Instant now = Instant.now();
 
         Address checkoutAddress = userService.rememberCheckoutAddress(user, request.address());
@@ -117,6 +250,7 @@ public class OrderService {
         order.setSubtotal(round(subtotal));
         order.setShipping(shipping);
         order.setDiscount(round(discount));
+        order.setBogoDiscountPaise(bogo.discountPaise());
         order.setOfferCode(appliedOffer == null ? null : appliedOffer.getCode());
         order.setTotal(round(Math.max(0, subtotal + shipping - discount)));
         order.setStockRestored(false);
@@ -223,6 +357,7 @@ public class OrderService {
         return actions;
     }
 
+    @Transactional
     public synchronized Order updateStatus(String orderId, String newStatus, String note, String courierName, String trackingNumber) {
         String status = normalizeStatus(newStatus);
         Order order = orderRepository.findById(orderId)
@@ -246,6 +381,17 @@ public class OrderService {
         }
 
         if (CANCELLED.equals(status) && !order.isStockRestored()) {
+            // Wallet refund and cashback reversal are inside the same MongoDB transaction.
+            // A Razorpay refund is a separate support/operations action.
+            if (order.getWalletRedeemedPaise() > 0) {
+                walletService.refundRedemption(order.getUserId(), order.getId(), order.getWalletRedeemedPaise());
+            }
+            // Cancellation removes promotional credit, but does NOT initiate a Razorpay refund.
+            if (order.getCashbackEarnedPaise() > 0 && !order.isCashbackReversed()
+                    && order.getRazorpayPaymentId() != null) {
+                walletService.reverseCashback(order.getUserId(), order.getId(), order.getCashbackEarnedPaise());
+                order.setCashbackReversed(true);
+            }
             restoreOrderStock(order);
             order.setStockRestored(true);
             order.setCourierName(null);

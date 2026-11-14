@@ -6,6 +6,6 @@ import jakarta.validation.constraints.NotNull;
 
 public record RazorpayOrderRequest(
         @NotNull @Valid Address address,
-        String couponCode
-) {
-}
+        String couponCode,
+        boolean useWallet
+) {}

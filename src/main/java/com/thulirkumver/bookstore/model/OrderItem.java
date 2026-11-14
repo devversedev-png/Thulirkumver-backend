@@ -6,6 +6,8 @@ public class OrderItem {
     private String image;
     private double price;
     private int quantity;
+    /** Number of this item’s units included free under a BOGO checkout. */
+    private int bogoFreeQuantity;
 
     public OrderItem() {
     }
@@ -26,6 +28,8 @@ public class OrderItem {
     public void setImage(String image) { this.image = image; }
     public double getPrice() { return price; }
     public void setPrice(double price) { this.price = price; }
+    public int getBogoFreeQuantity() { return bogoFreeQuantity; }
+    public void setBogoFreeQuantity(int value) { bogoFreeQuantity = value; }
     public int getQuantity() { return quantity; }
     public void setQuantity(int quantity) { this.quantity = quantity; }
 }
