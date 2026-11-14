@@ -150,6 +150,66 @@ public class HomeContentController {
         return ensureDefaultSections();
     }
 
+    /** Save only one section and bulk-update its selected discounts in one API call. */
+    @PutMapping("/admin/home-sections/{key}")
+    public HomeSection saveSingleSection(@PathVariable String key, @RequestBody HomeSection incoming) {
+        if (SECTION_DEFINITIONS.stream().noneMatch(def -> def.get("key").equals(key))) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "Unknown home section");
+        }
+        if (incoming == null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "Missing section settings");
+        }
+        HomeSection target = safeFindSectionByKey(key).orElseGet(HomeSection::new);
+        Map<String, Object> config = normalizeConfig(key, incoming.getConfig());
+        List<String> ids = incoming.getBookIds() == null ? List.of() : incoming.getBookIds().stream()
+                .filter(Objects::nonNull).distinct().toList();
+
+        if ("discounted".equals(key) && "MANUAL".equals(config.get("mode"))) {
+            double discount;
+            try {
+                discount = Double.parseDouble(String.valueOf(config.getOrDefault("discountPercent", 0)));
+            } catch (NumberFormatException ex) {
+                discount = Double.NaN;
+            }
+            if (!Double.isFinite(discount) || discount <= 0 || discount > 100 || ids.isEmpty()) {
+                throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.BAD_REQUEST,
+                        "Select books and enter a discount between 0 and 100");
+            }
+            List<Book> selected = new ArrayList<>();
+            bookRepository.findAllById(ids).forEach(selected::add);
+            if (selected.size() != ids.size()) {
+                throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.BAD_REQUEST, "Some selected books no longer exist");
+            }
+            var bulk = mongoTemplate.bulkOps(org.springframework.data.mongodb.core.BulkOperations.BulkMode.UNORDERED, Book.class);
+            int changes = 0;
+            for (Book book : selected) {
+                double original = book.getOriginalPrice() > 0 ? book.getOriginalPrice() : book.getPrice();
+                if (original <= 0) continue;
+                double price = Math.round(original * (1 - discount / 100) * 100) / 100.0;
+                bulk.updateOne(
+                        org.springframework.data.mongodb.core.query.Query.query(
+                                org.springframework.data.mongodb.core.query.Criteria.where("id").is(book.getId())),
+                        new org.springframework.data.mongodb.core.query.Update()
+                                .set("originalPrice", original).set("price", price));
+                changes++;
+            }
+            if (changes > 0) bulk.execute();
+        }
+
+        target.setKey(key);
+        if (target.getTitle() == null || target.getTitle().isBlank()) {
+            target.setTitle(SECTION_DEFINITIONS.stream().filter(def -> def.get("key").equals(key))
+                    .findFirst().orElseThrow().get("title"));
+        }
+        target.setBookIds(ids);
+        target.setConfig(config);
+        return safeSaveSection(target);
+    }
+
     @GetMapping("/admin/home-settings")
     public HomeSettings adminSettings() {
         return settingsRepository.findById("home").orElseGet(HomeSettings::new);
