@@ -150,64 +150,77 @@ public class HomeContentController {
         return ensureDefaultSections();
     }
 
-    /** Save only one section and bulk-update its selected discounts in one API call. */
+    /** Saves one section and applies book-specific discounts to catalogue prices. */
     @PutMapping("/admin/home-sections/{key}")
     public HomeSection saveSingleSection(@PathVariable String key, @RequestBody HomeSection incoming) {
-        if (SECTION_DEFINITIONS.stream().noneMatch(def -> def.get("key").equals(key))) {
+        if (SECTION_DEFINITIONS.stream().noneMatch(def -> key.equals(def.get("key")))) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.BAD_REQUEST, "Unknown home section");
         }
-        if (incoming == null) {
-            throw new org.springframework.web.server.ResponseStatusException(
-                    org.springframework.http.HttpStatus.BAD_REQUEST, "Missing section settings");
-        }
         HomeSection target = safeFindSectionByKey(key).orElseGet(HomeSection::new);
         Map<String, Object> config = normalizeConfig(key, incoming.getConfig());
-        List<String> ids = incoming.getBookIds() == null ? List.of() : incoming.getBookIds().stream()
-                .filter(Objects::nonNull).distinct().toList();
-
-        if ("discounted".equals(key) && "MANUAL".equals(config.get("mode"))) {
-            double discount;
-            try {
-                discount = Double.parseDouble(String.valueOf(config.getOrDefault("discountPercent", 0)));
-            } catch (NumberFormatException ex) {
-                discount = Double.NaN;
-            }
-            if (!Double.isFinite(discount) || discount <= 0 || discount > 100 || ids.isEmpty()) {
+        List<String> ids = incoming.getBookIds() == null ? List.of() : incoming.getBookIds().stream().distinct().toList();
+        Map<String, Book> books = bookRepository.findAll().stream()
+                .filter(book -> book.getId() != null)
+                .collect(Collectors.toMap(Book::getId, Function.identity(), (a, b) -> a));
+        Map<String, Double> prices = new LinkedHashMap<>();
+        if ("discounted".equals(key) && "MANUAL".equalsIgnoreCase(stringValue(config.get("mode"), "AUTO"))) {
+            Object raw = config.get("perBookDiscounts");
+            if (!(raw instanceof Map<?, ?> discounts)) {
                 throw new org.springframework.web.server.ResponseStatusException(
-                        org.springframework.http.HttpStatus.BAD_REQUEST,
-                        "Select books and enter a discount between 0 and 100");
+                        org.springframework.http.HttpStatus.BAD_REQUEST, "Individual discounts are required");
             }
-            List<Book> selected = new ArrayList<>();
-            bookRepository.findAllById(ids).forEach(selected::add);
-            if (selected.size() != ids.size()) {
-                throw new org.springframework.web.server.ResponseStatusException(
-                        org.springframework.http.HttpStatus.BAD_REQUEST, "Some selected books no longer exist");
-            }
-            var bulk = mongoTemplate.bulkOps(org.springframework.data.mongodb.core.BulkOperations.BulkMode.UNORDERED, Book.class);
-            int changes = 0;
-            for (Book book : selected) {
+            for (String id : ids) {
+                Book book = books.get(id);
+                Object rawEntry = discounts.get(id);
+                if (book == null || !(rawEntry instanceof Map<?, ?> entry)) {
+                    throw new org.springframework.web.server.ResponseStatusException(
+                            org.springframework.http.HttpStatus.BAD_REQUEST, "Invalid book or discount: " + id);
+                }
                 double original = book.getOriginalPrice() > 0 ? book.getOriginalPrice() : book.getPrice();
-                if (original <= 0) continue;
-                double price = Math.round(original * (1 - discount / 100) * 100) / 100.0;
-                bulk.updateOne(
-                        org.springframework.data.mongodb.core.query.Query.query(
-                                org.springframework.data.mongodb.core.query.Criteria.where("id").is(book.getId())),
-                        new org.springframework.data.mongodb.core.query.Update()
-                                .set("originalPrice", original).set("price", price));
-                changes++;
+                String type = stringValue(entry.get("type"), "PERCENT");
+                double value;
+                try { value = Double.parseDouble(String.valueOf(entry.get("value"))); }
+                catch (Exception ex) { value = Double.NaN; }
+                if (!Double.isFinite(value) || value <= 0 || original <= 0 ||
+                        !(type.equals("PERCENT") || type.equals("FIXED")) ||
+                        (type.equals("PERCENT") && value > 100) ||
+                        (type.equals("FIXED") && value >= original)) {
+                    throw new org.springframework.web.server.ResponseStatusException(
+                            org.springframework.http.HttpStatus.BAD_REQUEST, "Invalid discount for " + book.getTitle());
+                }
+                double price = type.equals("FIXED") ? original - value : original * (1 - value / 100.0);
+                prices.put(id, Math.round(price * 100.0) / 100.0);
             }
-            if (changes > 0) bulk.execute();
         }
-
+        List<String> oldIds = target.getBookIds() == null ? List.of() : target.getBookIds();
         target.setKey(key);
         if (target.getTitle() == null || target.getTitle().isBlank()) {
-            target.setTitle(SECTION_DEFINITIONS.stream().filter(def -> def.get("key").equals(key))
+            target.setTitle(SECTION_DEFINITIONS.stream().filter(def -> key.equals(def.get("key")))
                     .findFirst().orElseThrow().get("title"));
         }
         target.setBookIds(ids);
         target.setConfig(config);
-        return safeSaveSection(target);
+        HomeSection saved = safeSaveSection(target);
+        if ("discounted".equals(key)) {
+            // Restore books previously managed by this section but no longer selected.
+            for (String id : oldIds) {
+                if (!prices.containsKey(id)) {
+                    Book book = books.get(id);
+                    if (book != null && book.getOriginalPrice() > 0) {
+                        book.setPrice(book.getOriginalPrice());
+                        bookRepository.save(book);
+                    }
+                }
+            }
+            for (Map.Entry<String, Double> entry : prices.entrySet()) {
+                Book book = books.get(entry.getKey());
+                if (book.getOriginalPrice() <= 0) book.setOriginalPrice(book.getPrice());
+                book.setPrice(entry.getValue());
+                bookRepository.save(book);
+            }
+        }
+        return saved;
     }
 
     @GetMapping("/admin/home-settings")
