@@ -446,9 +446,7 @@ public class HomeContentController {
 
             case "cashback" -> {
                 config.put("mode", "MANUAL");
-                config.put("cashbackType", "PERCENT");
-                config.put("cashbackValue", 5);
-                config.put("maxCashback", 0);
+                config.put("perBookCashbacks", new LinkedHashMap<String, Object>());
             }
 
             case "new-arrivals" -> {
@@ -493,8 +491,25 @@ public class HomeContentController {
                 config.put("minReviews", intValue(config.get("minReviews"), 5, 0, 100000));
             }
             case "cashback" -> {
-                config.put("cashbackValue", doubleValue(config.get("cashbackValue"), 5, 0, 100000));
-                config.put("maxCashback", doubleValue(config.get("maxCashback"), 0, 0, 1000000));
+                config.remove("cashbackType");
+                config.remove("cashbackValue");
+                config.remove("maxCashback");
+                Object raw = config.get("perBookCashbacks");
+                Map<String, Object> validated = new LinkedHashMap<>();
+                if (raw instanceof Map<?, ?> entries) {
+                    for (Map.Entry<?, ?> item : entries.entrySet()) {
+                        if (!(item.getValue() instanceof Map<?, ?> entry)) continue;
+                        String type = stringValue(entry.get("type"), "FIXED");
+                        double value = doubleValue(entry.get("value"), 0, 0, 1000000);
+                        if (!(type.equals("FIXED") || type.equals("PERCENT")) ||
+                                (type.equals("PERCENT") && value > 100)) {
+                            throw new org.springframework.web.server.ResponseStatusException(
+                                    org.springframework.http.HttpStatus.BAD_REQUEST, "Invalid cashback configuration");
+                        }
+                        validated.put(String.valueOf(item.getKey()), Map.of("type", type, "value", value));
+                    }
+                }
+                config.put("perBookCashbacks", validated);
             }
         }
         return config;
