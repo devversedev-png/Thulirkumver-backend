@@ -16,6 +16,8 @@ app:
   admin-name: ${ADMIN_NAME}
   admin-email: ${ADMIN_EMAIL}
   admin-password: ${ADMIN_PASSWORD}
+  # Optional one-time repair: comma-separated book titles/ids whose normal price should go back to their MRP.
+  pricing-restore-to-mrp: ${PRICING_RESTORE_TO_MRP:}
 
 razorpay:
   key-id: ${RAZORPAY_KEY_ID}

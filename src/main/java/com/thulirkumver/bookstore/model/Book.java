@@ -15,8 +15,15 @@ public class Book {
     private String isbn;
     private String description;
     private String image;
+    /** Current customer selling price. Always derived: basePrice, minus any admin promotion. */
     private double price;
+    /** Printed MRP. Informational only; never used as the base for promotions. */
     private double originalPrice;
+    /** Normal selling price (before any promotion). Null only on records not migrated yet. */
+    private Double basePrice;
+    /** Active admin promotion: PERCENT or FIXED. Null / zero value means no promotion. */
+    private String discountType;
+    private Double discountValue;
     private double rating;
     private int reviewCount;
     private int stock;
@@ -70,6 +77,57 @@ public class Book {
     public void setPrice(double price) { this.price = price; }
     public double getOriginalPrice() { return originalPrice; }
     public void setOriginalPrice(double originalPrice) { this.originalPrice = originalPrice; }
+    public Double getBasePrice() { return basePrice; }
+    public void setBasePrice(Double basePrice) { this.basePrice = basePrice; }
+    public String getDiscountType() { return discountType; }
+    public void setDiscountType(String discountType) { this.discountType = discountType; }
+    public Double getDiscountValue() { return discountValue; }
+    public void setDiscountValue(Double discountValue) { this.discountValue = discountValue; }
+
+    // ---- Pricing helpers. Deliberately not bean-style names so Jackson / Spring Data ignore them. ----
+
+    public boolean hasStoredBasePrice() { return basePrice != null && basePrice > 0; }
+
+    /** The normal selling price: the stored base, or (legacy records) the current price. */
+    public double normalPrice() { return hasStoredBasePrice() ? basePrice : price; }
+
+    public boolean hasActiveDiscount() {
+        return discountValue != null && discountValue > 0 && BookPricing.isValidType(discountType);
+    }
+
+    /** Sets the normal selling price and recomputes the selling price from it. Keeps any promotion. */
+    public void changeNormalPrice(double normal) {
+        this.basePrice = BookPricing.round2(normal);
+        reprice();
+    }
+
+    /** Applies a promotion on top of the normal selling price (never on an already discounted amount). */
+    public void applyDiscount(String type, double value) {
+        if (!hasStoredBasePrice()) this.basePrice = BookPricing.round2(price);
+        this.discountType = type;
+        this.discountValue = value;
+        reprice();
+    }
+
+    /** Removes the promotion and restores the normal selling price. */
+    public void clearDiscount() {
+        this.discountType = null;
+        this.discountValue = null;
+        reprice();
+    }
+
+    private void reprice() {
+        if (!hasStoredBasePrice()) return;
+        if (hasActiveDiscount() && "FIXED".equals(discountType) && discountValue >= basePrice) {
+            // A fixed amount can never take a book to zero or below; the promotion no longer applies.
+            this.discountType = null;
+            this.discountValue = null;
+        }
+        this.price = hasActiveDiscount()
+                ? BookPricing.discounted(basePrice, discountType, discountValue)
+                : basePrice;
+    }
+
     public double getRating() { return rating; }
     public void setRating(double rating) { this.rating = rating; }
     public int getReviewCount() { return reviewCount; }

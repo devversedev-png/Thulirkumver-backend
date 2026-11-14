@@ -1,6 +1,9 @@
 package com.thulirkumver.bookstore.controller;
 
 import com.thulirkumver.bookstore.model.Book;
+import com.thulirkumver.bookstore.model.BookPricing;
+import com.thulirkumver.bookstore.model.BookPricing.Promo;
+import com.thulirkumver.bookstore.service.BookPricingService;
 import com.thulirkumver.bookstore.model.HomeSection;
 import com.thulirkumver.bookstore.model.HomeSettings;
 import com.thulirkumver.bookstore.model.Order;
@@ -79,15 +82,18 @@ public class HomeContentController {
     private final BookRepository bookRepository;
     private final OrderRepository orderRepository;
     private final MongoTemplate mongoTemplate;
+    private final BookPricingService pricingService;
 
     public HomeContentController(HomeSettingsRepository settingsRepository,
                                  BookRepository bookRepository,
                                  OrderRepository orderRepository,
-                                 MongoTemplate mongoTemplate) {
+                                 MongoTemplate mongoTemplate,
+                                 BookPricingService pricingService) {
         this.settingsRepository = settingsRepository;
         this.bookRepository = bookRepository;
         this.orderRepository = orderRepository;
         this.mongoTemplate = mongoTemplate;
+        this.pricingService = pricingService;
     }
 
     @GetMapping("/home-sections")
@@ -132,6 +138,7 @@ public class HomeContentController {
 
     @PutMapping("/admin/home-sections")
     public List<HomeSection> saveSections(@RequestBody List<HomeSection> sections) {
+        pricingService.normalizeLegacyBooks();
         List<HomeSection> saved = new ArrayList<>();
         for (HomeSection incoming : sections == null ? List.<HomeSection>of() : sections) {
             if (incoming.getKey() == null || incoming.getKey().isBlank()) continue;
@@ -147,6 +154,7 @@ public class HomeContentController {
             target.setConfig(normalizeConfig(incoming.getKey(), incoming.getConfig()));
             saved.add(safeSaveSection(target));
         }
+        pricingService.syncFromStoredSection();
         return ensureDefaultSections();
     }
 
@@ -157,13 +165,16 @@ public class HomeContentController {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.BAD_REQUEST, "Unknown home section");
         }
+        // Give any pre-existing book a normal selling price first, while the old promotion config is still stored.
+        pricingService.normalizeLegacyBooks();
         HomeSection target = safeFindSectionByKey(key).orElseGet(HomeSection::new);
         Map<String, Object> config = normalizeConfig(key, incoming.getConfig());
         List<String> ids = incoming.getBookIds() == null ? List.of() : incoming.getBookIds().stream().distinct().toList();
         Map<String, Book> books = bookRepository.findAll().stream()
                 .filter(book -> book.getId() != null)
                 .collect(Collectors.toMap(Book::getId, Function.identity(), (a, b) -> a));
-        Map<String, Double> prices = new LinkedHashMap<>();
+        // Promotions to apply. A missing, empty or zero discount means "no promotion" for that book.
+        Map<String, Promo> promos = new LinkedHashMap<>();
         if ("discounted".equals(key) && "MANUAL".equalsIgnoreCase(stringValue(config.get("mode"), "AUTO"))) {
             Object raw = config.get("perBookDiscounts");
             if (!(raw instanceof Map<?, ?> discounts)) {
@@ -177,23 +188,22 @@ public class HomeContentController {
                     throw new org.springframework.web.server.ResponseStatusException(
                             org.springframework.http.HttpStatus.BAD_REQUEST, "Invalid book or discount: " + id);
                 }
-                double original = book.getOriginalPrice() > 0 ? book.getOriginalPrice() : book.getPrice();
+                // The base is always the normal selling price, never an already discounted amount or the MRP.
+                double normal = book.normalPrice();
                 String type = stringValue(entry.get("type"), "PERCENT");
                 double value;
                 try { value = Double.parseDouble(String.valueOf(entry.get("value"))); }
                 catch (Exception ex) { value = Double.NaN; }
-                if (!Double.isFinite(value) || value <= 0 || original <= 0 ||
-                        !(type.equals("PERCENT") || type.equals("FIXED")) ||
+                if (!Double.isFinite(value) || value < 0 || normal <= 0 ||
+                        !BookPricing.isValidType(type) ||
                         (type.equals("PERCENT") && value > 100) ||
-                        (type.equals("FIXED") && value >= original)) {
+                        (type.equals("FIXED") && value >= normal)) {
                     throw new org.springframework.web.server.ResponseStatusException(
                             org.springframework.http.HttpStatus.BAD_REQUEST, "Invalid discount for " + book.getTitle());
                 }
-                double price = type.equals("FIXED") ? original - value : original * (1 - value / 100.0);
-                prices.put(id, Math.round(price * 100.0) / 100.0);
+                if (value > 0) promos.put(id, new Promo(type, value));
             }
         }
-        List<String> oldIds = target.getBookIds() == null ? List.of() : target.getBookIds();
         target.setKey(key);
         if (target.getTitle() == null || target.getTitle().isBlank()) {
             target.setTitle(SECTION_DEFINITIONS.stream().filter(def -> key.equals(def.get("key")))
@@ -203,22 +213,9 @@ public class HomeContentController {
         target.setConfig(config);
         HomeSection saved = safeSaveSection(target);
         if ("discounted".equals(key)) {
-            // Restore books previously managed by this section but no longer selected.
-            for (String id : oldIds) {
-                if (!prices.containsKey(id)) {
-                    Book book = books.get(id);
-                    if (book != null && book.getOriginalPrice() > 0) {
-                        book.setPrice(book.getOriginalPrice());
-                        bookRepository.save(book);
-                    }
-                }
-            }
-            for (Map.Entry<String, Double> entry : prices.entrySet()) {
-                Book book = books.get(entry.getKey());
-                if (book.getOriginalPrice() <= 0) book.setOriginalPrice(book.getPrice());
-                book.setPrice(entry.getValue());
-                bookRepository.save(book);
-            }
+            // Applies the promotions, and restores the normal price of every book that lost its promotion.
+            // Books that never had a promotion are not touched.
+            pricingService.syncPromotions(target.isActive() ? promos : Map.of());
         }
         return saved;
     }
