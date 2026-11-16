@@ -19,6 +19,10 @@ public class Offer {
     private String bannerImage;
     /** COUPON is the default for offers saved before book bundles existed. */
     private String offerType = "COUPON";
+    /** Multiple required books: ALL must be bought to unlock a bundle. */
+    private java.util.List<OfferBookQuantity> buyItems;
+    /** Multiple free book types awarded together. */
+    private java.util.List<OfferBookQuantity> giftItems;
     private String buyBookId;
     private String getBookId;
     private int buyQuantity = 1;
@@ -49,6 +53,18 @@ public class Offer {
     public void setActive(boolean active) { this.active = active; }
     public String getOfferType() { return offerType == null ? "COUPON" : offerType; }
     public void setOfferType(String value) { offerType = value; }
+    public java.util.List<OfferBookQuantity> getBuyItems() {
+        return buyItems != null && !buyItems.isEmpty() ? buyItems :
+                buyBookId == null || buyBookId.isBlank() ? java.util.List.of() :
+                        java.util.List.of(new OfferBookQuantity(buyBookId, buyQuantity));
+    }
+    public void setBuyItems(java.util.List<OfferBookQuantity> value) { buyItems = value; }
+    public java.util.List<OfferBookQuantity> getGiftItems() {
+        return giftItems != null && !giftItems.isEmpty() ? giftItems :
+                getBookId == null || getBookId.isBlank() ? java.util.List.of() :
+                        java.util.List.of(new OfferBookQuantity(getBookId, getQuantity));
+    }
+    public void setGiftItems(java.util.List<OfferBookQuantity> value) { giftItems = value; }
     public String getBuyBookId() { return buyBookId; }
     public void setBuyBookId(String value) { buyBookId = value; }
     public String getGetBookId() { return getBookId; }

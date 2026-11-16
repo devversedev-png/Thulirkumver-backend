@@ -113,23 +113,33 @@ public class AdminOperationsController {
         if ("BUY_GET".equalsIgnoreCase(offer.getOfferType())) {
             offer.setOfferType("BUY_GET");
             offer.setCode(""); // Buy X Get Y promotions apply without a coupon.
-            if (offer.getBuyBookId() == null || offer.getBuyBookId().isBlank()
-                    || offer.getGetBookId() == null || offer.getGetBookId().isBlank()
-                    || !bookRepository.existsById(offer.getBuyBookId())
-                    || !bookRepository.existsById(offer.getGetBookId()))
-                throw new IllegalArgumentException("Choose an existing qualifying book and free book");
-            if (offer.getBuyQuantity() < 1 || offer.getBuyQuantity() > 50
-                    || offer.getGetQuantity() < 1 || offer.getGetQuantity() > 50)
-                throw new IllegalArgumentException("Buy and free quantities must be between 1 and 50");
-            // One active rule per qualifying title avoids accidental stacking or
-            // admin-order-dependent selection. Inactive drafts may coexist.
+            java.util.List<com.thulirkumver.bookstore.model.OfferBookQuantity> required = offer.getBuyItems();
+            java.util.List<com.thulirkumver.bookstore.model.OfferBookQuantity> gifts = offer.getGiftItems();
+            if (required.isEmpty() || gifts.isEmpty() || required.size() > 15 || gifts.size() > 15)
+                throw new IllegalArgumentException("Select 1–15 qualifying and 1–15 free books");
+            java.util.Set<String> requiredIds = new java.util.HashSet<>();
+            java.util.Set<String> giftIds = new java.util.HashSet<>();
+            for (var item : required) {
+                if (item == null || item.getBookId() == null || item.getBookId().isBlank()
+                        || item.getQuantity() < 1 || item.getQuantity() > 50
+                        || !bookRepository.existsById(item.getBookId()) || !requiredIds.add(item.getBookId()))
+                    throw new IllegalArgumentException("Select unique qualifying books with quantities from 1 to 50");
+            }
+            for (var item : gifts) {
+                if (item == null || item.getBookId() == null || item.getBookId().isBlank()
+                        || item.getQuantity() < 1 || item.getQuantity() > 50
+                        || !bookRepository.existsById(item.getBookId()) || !giftIds.add(item.getBookId()))
+                    throw new IllegalArgumentException("Select unique free books with quantities from 1 to 50");
+            }
+            // An active qualifying title can participate in only one active bundle.
+            // Prevents hidden stacking and admin-dependent rule selection.
             if (offer.isActive()) {
                 boolean conflict = offerRepository.findAll().stream()
                         .anyMatch(saved -> !java.util.Objects.equals(saved.getId(), editingId)
                                 && saved.isActive() && "BUY_GET".equalsIgnoreCase(saved.getOfferType())
-                                && offer.getBuyBookId().equals(saved.getBuyBookId()));
+                                && saved.getBuyItems().stream().anyMatch(item -> requiredIds.contains(item.getBookId())));
                 if (conflict)
-                    throw new IllegalArgumentException("Another active Buy X Get Y offer already uses this qualifying book");
+                    throw new IllegalArgumentException("A qualifying book is already used by another active free-book offer");
             }
         } else {
             offer.setOfferType("COUPON");

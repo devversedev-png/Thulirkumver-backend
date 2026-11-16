@@ -29,27 +29,36 @@ public class BogoRulesService {
 
     public BogoCalculator.Result snapshot(List<OrderItem> purchased) {
         String today = LocalDate.now().toString();
-        Map<String, Offer> rulesByBuyBook = new HashMap<>();
-        offers.findAll().stream()
+        List<Offer> activeRules = offers.findAll().stream()
                 .filter(Offer::isActive)
                 .filter(o -> "BUY_GET".equalsIgnoreCase(o.getOfferType()))
-                .filter(o -> o.getBuyBookId() != null && o.getGetBookId() != null)
-                .filter(o -> o.getBuyQuantity() >= 1 && o.getGetQuantity() >= 1)
+                .filter(o -> !o.getBuyItems().isEmpty() && !o.getGiftItems().isEmpty())
                 .filter(o -> o.getStartDate() == null || o.getStartDate().isBlank()
                         || o.getStartDate().compareTo(today) <= 0)
                 .filter(o -> o.getEndDate() == null || o.getEndDate().isBlank()
                         || o.getEndDate().compareTo(today) >= 0)
                 .sorted(Comparator.comparing(Offer::getId, Comparator.nullsLast(String::compareTo)))
-                .forEach(o -> rulesByBuyBook.putIfAbsent(o.getBuyBookId(), o));
-
+                .toList();
+        Map<String, Integer> paidQtyByBook = new HashMap<>();
+        for (OrderItem item : purchased)
+            paidQtyByBook.merge(item.getBookId(), item.getQuantity(), Math::addExact);
         Map<String, Integer> requiredGifts = new LinkedHashMap<>();
-        for (OrderItem paid : purchased) {
-            Offer rule = rulesByBuyBook.get(paid.getBookId());
-            if (rule == null) continue;
-            int gifts = BogoCalculator.freeUnits(paid.getQuantity(), rule.getBuyQuantity(), rule.getGetQuantity());
-            if (gifts > 0) {
-                requiredGifts.merge(rule.getGetBookId(), gifts, Math::addExact);
+        java.util.Set<String> usedQualifyingBooks = new java.util.HashSet<>();
+        for (Offer rule : activeRules) {
+            var required = rule.getBuyItems();
+            var giftLines = rule.getGiftItems();
+            if (required.stream().anyMatch(item -> usedQualifyingBooks.contains(item.getBookId()))) continue;
+            if (required.stream().anyMatch(item -> item.getBookId() == null || item.getQuantity() < 1)) continue;
+            if (giftLines.stream().anyMatch(item -> item.getBookId() == null || item.getQuantity() < 1)) continue;
+            int bundleCount = required.stream()
+                    .mapToInt(item -> paidQtyByBook.getOrDefault(item.getBookId(), 0) / item.getQuantity())
+                    .min().orElse(0);
+            if (bundleCount < 1) continue;
+            for (var item : giftLines) {
+                int qty = Math.multiplyExact(bundleCount, item.getQuantity());
+                requiredGifts.merge(item.getBookId(), qty, Math::addExact);
             }
+            required.forEach(item -> usedQualifyingBooks.add(item.getBookId()));
         }
         List<OrderItem> gifts = new ArrayList<>();
         long freeValuePaise = 0;
