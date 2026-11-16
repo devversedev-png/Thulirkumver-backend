@@ -470,13 +470,13 @@ public class HomeContentController {
             }
 
             case "top-selling" -> {
-                config.put("mode", "AUTO");
+                config.put("mode", "MANUAL");
                 config.put("periodDays", 30);
                 config.put("basis", "QUANTITY");
             }
 
             case "highly-featured" -> {
-                config.put("mode", "FEATURED_FLAG");
+                config.put("mode", "MANUAL");
             }
 
             case "bogo" -> {
@@ -491,17 +491,17 @@ public class HomeContentController {
             }
 
             case "new-arrivals" -> {
-                config.put("mode", "NEW_ARRIVAL_FLAG");
+                config.put("mode", "MANUAL");
             }
 
             case "best-rated" -> {
-                config.put("mode", "AUTO");
+                config.put("mode", "MANUAL");
                 config.put("minRating", 4);
                 config.put("minReviews", 5);
             }
 
             case "trending" -> {
-                config.put("mode", "AUTO");
+                config.put("mode", "MANUAL");
                 config.put("periodDays", 7);
                 config.put("basis", "SALES");
             }

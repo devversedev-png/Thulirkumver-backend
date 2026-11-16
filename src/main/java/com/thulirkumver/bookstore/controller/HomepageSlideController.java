@@ -110,6 +110,12 @@ public class HomepageSlideController {
         String target = clean(slide.getButtonLink());
         if (!target.isEmpty() && !(target.startsWith("/") && !target.startsWith("//") && !target.contains("\\")))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Button destination must be a local path beginning with /");
+        if (target.contains("BOOK_ID")) {
+            target = !bookId.isEmpty() ? "/book/" + bookId : "/shop";
+        }
+        if (target.isBlank()) {
+            target = !bookId.isEmpty() ? "/book/" + bookId : "/shop";
+        }
         slide.setButtonLink(target);
         return slide;
     }
@@ -135,7 +141,13 @@ public class HomepageSlideController {
         result.put("imageUrl", slide.getImageUrl());
         result.put("theme", slide.getTheme());
         result.put("buttonText", slide.getButtonText());
-        result.put("buttonLink", slide.getButtonLink());
+        String link = clean(slide.getButtonLink());
+        String featuredId = clean(slide.getBookId());
+        if (link.contains("BOOK_ID")) {
+            link = !featuredId.isEmpty() ? "/book/" + featuredId : "/shop";
+        }
+        if (link.isEmpty()) link = !featuredId.isEmpty() ? "/book/" + featuredId : "/shop";
+        result.put("buttonLink", link);
         result.put("active", slide.isActive());
         result.put("displayOrder", slide.getDisplayOrder());
         if (slide.getBookId() != null && !slide.getBookId().isBlank()) {
