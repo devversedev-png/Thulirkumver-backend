@@ -52,6 +52,7 @@ public class SecurityConfig {
                                 "/api/health",
                                 "/api/home-sections",
                                 "/api/home-settings",
+                                "/api/homepage-slides",
                                 "/api/delivery-settings"
                         ).permitAll()
 
