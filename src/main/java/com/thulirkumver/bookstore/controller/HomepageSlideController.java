@@ -96,7 +96,7 @@ public class HomepageSlideController {
         slide.setEyebrow(limit(slide.getEyebrow(), 90));
         slide.setButtonText(limit(slide.getButtonText(), 75));
         String theme = clean(slide.getTheme()).toLowerCase(Locale.ROOT);
-        if (!Set.of("peach", "cream", "green", "sage", "lavender").contains(theme))
+        if (!Set.of("peach", "cream", "green", "sage", "lavender", "sky", "rose", "mint", "sand", "sunset").contains(theme))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported slide theme");
         slide.setTheme(theme);
         String bookId = clean(slide.getBookId());
