@@ -126,7 +126,8 @@ public class HomeContentController {
                     result.put("displayOrder", section.getDisplayOrder());
                     result.put("config", section.getConfig());
                     result.put("bookIds", resolved.stream().map(Book::getId).toList());
-                    if ("bogo".equals(section.getKey())) result.put("eligibleBookIds", section.getBookIds());
+                    if ("bogo".equals(section.getKey()) || "cashback".equals(section.getKey()))
+                        result.put("eligibleBookIds", section.getBookIds());
                     result.put("books", resolved);
                     return result;
                 })
@@ -183,6 +184,32 @@ public class HomeContentController {
         Map<String, Book> books = bookRepository.findAll().stream()
                 .filter(book -> book.getId() != null)
                 .collect(Collectors.toMap(Book::getId, Function.identity(), (a, b) -> a));
+        if ("cashback".equals(key)) {
+            Object raw = config.get("perBookCashbacks");
+            Map<?, ?> rules = raw instanceof Map<?, ?> entries ? entries : Map.of();
+            Map<String, Object> selectedRules = new LinkedHashMap<>();
+            for (String bookId : ids) {
+                Book book = books.get(bookId);
+                Object rawRule = rules.get(bookId);
+                if (book == null || !(rawRule instanceof Map<?, ?> rule)) {
+                    throw new org.springframework.web.server.ResponseStatusException(
+                            org.springframework.http.HttpStatus.BAD_REQUEST, "Select a cashback type and value for every book");
+                }
+                String type = stringValue(rule.get("type"), "");
+                double value = doubleValue(rule.get("value"), -1, -1, 1000000);
+                double price = book.getPrice();
+                if (!("PERCENT".equals(type) || "FIXED".equals(type)) ||
+                        !Double.isFinite(value) || value <= 0 || price <= 0 ||
+                        ("PERCENT".equals(type) && value > 100) ||
+                        ("FIXED".equals(type) && value > price)) {
+                    throw new org.springframework.web.server.ResponseStatusException(
+                            org.springframework.http.HttpStatus.BAD_REQUEST, "Invalid cashback for " + book.getTitle());
+                }
+                selectedRules.put(bookId, Map.of("type", type, "value", value));
+            }
+            config.put("mode", "MANUAL");
+            config.put("perBookCashbacks", selectedRules);
+        }
         // Promotions to apply. A missing, empty or zero discount means "no promotion" for that book.
         Map<String, Promo> promos = new LinkedHashMap<>();
         if ("discounted".equals(key) && "MANUAL".equalsIgnoreCase(stringValue(config.get("mode"), "AUTO"))) {
