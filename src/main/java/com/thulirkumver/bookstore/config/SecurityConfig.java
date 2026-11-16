@@ -51,7 +51,8 @@ public class SecurityConfig {
                                 "/api/authors/**",
                                 "/api/health",
                                 "/api/home-sections",
-                                "/api/home-settings"
+                                "/api/home-settings",
+                                "/api/delivery-settings"
                         ).permitAll()
 
                         .requestMatchers(

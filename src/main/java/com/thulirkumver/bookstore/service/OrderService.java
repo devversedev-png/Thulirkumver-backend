@@ -38,10 +38,11 @@ public class OrderService {
     private final CashbackRulesService cashbackRules;
     private final WalletService walletService;
     private final BogoRulesService bogoRules;
+    private final DeliverySettingsService deliverySettings;
 
     public OrderService(OrderRepository orderRepository, BookRepository bookRepository, UserService userService,
                         OfferRepository offerRepository, CashbackRulesService cashbackRules, WalletService walletService,
-                        BogoRulesService bogoRules) {
+                        BogoRulesService bogoRules, DeliverySettingsService deliverySettings) {
         this.orderRepository = orderRepository;
         this.bookRepository = bookRepository;
         this.userService = userService;
@@ -49,6 +50,7 @@ public class OrderService {
         this.cashbackRules = cashbackRules;
         this.walletService = walletService;
         this.bogoRules = bogoRules;
+        this.deliverySettings = deliverySettings;
     }
 
     public synchronized double calculateCheckoutTotal(String email, com.thulirkumver.bookstore.model.Address address, String couponCode) {
@@ -71,7 +73,7 @@ public class OrderService {
         }
         BogoCalculator.Result bogo = bogoRules.snapshot(items);
         double merchandiseDue = round(subtotal); // Free gift items cancel out at full value.
-        double shipping = merchandiseDue >= 499 ? 0 : 60;
+        double shipping = deliverySettings.feeForMerchandise(merchandiseDue);
         Offer appliedOffer = resolveOffer(couponCode, merchandiseDue);
         double couponDiscount = appliedOffer == null ? 0 : calculateDiscount(appliedOffer, merchandiseDue);
         return round(Math.max(0, merchandiseDue + shipping - couponDiscount));
@@ -105,7 +107,7 @@ public class OrderService {
         items.addAll(bogo.giftItems());
         subtotal += bogo.discountPaise() / 100.0;
         double merchandiseDue = round(Math.max(0, subtotal - bogo.discountPaise() / 100.0));
-        double shipping = merchandiseDue >= 499 ? 0 : 60;
+        double shipping = deliverySettings.feeForMerchandise(merchandiseDue);
         Offer offer = resolveOffer(couponCode, merchandiseDue);
         double couponDiscount = offer == null ? 0 : calculateDiscount(offer, merchandiseDue);
         long grossPaise = Math.round(round(Math.max(0, merchandiseDue + shipping - couponDiscount)) * 100);
@@ -262,7 +264,7 @@ public class OrderService {
         }
         subtotal += bogo.discountPaise() / 100.0;
         double merchandiseDue = round(Math.max(0, subtotal - bogo.discountPaise() / 100.0));
-        double shipping = merchandiseDue >= 499 ? 0 : 60;
+        double shipping = deliverySettings.feeForMerchandise(merchandiseDue);
         Offer appliedOffer = resolveOffer(request.couponCode(), merchandiseDue);
         double couponDiscount = appliedOffer == null ? 0 : calculateDiscount(appliedOffer, merchandiseDue);
         double discount = bogo.discountPaise() / 100.0 + couponDiscount;
