@@ -11,6 +11,7 @@ public class Address {
     private String mobile;
     @NotBlank
     private String line1;
+    private String locality;
     private String line2;
     @NotBlank
     private String city;
@@ -37,6 +38,8 @@ public class Address {
     public void setMobile(String mobile) { this.mobile = mobile; }
     public String getLine1() { return line1; }
     public void setLine1(String line1) { this.line1 = line1; }
+    public String getLocality() { return locality; }
+    public void setLocality(String locality) { this.locality = locality; }
     public String getLine2() { return line2; }
     public void setLine2(String line2) { this.line2 = line2; }
     public String getCity() { return city; }
