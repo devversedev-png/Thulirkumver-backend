@@ -459,7 +459,7 @@ public class HomeContentController {
     private Map<String, Object> defaultConfig(String key) {
         Map<String, Object> config = new HashMap<>();
 
-        config.put("limit", 8);
+        config.put("limit", 5);
         config.put("mode", "AUTO");
 
         switch (key) {
@@ -520,7 +520,7 @@ public class HomeContentController {
     private Map<String, Object> normalizeConfig(String key, Map<String, Object> incoming) {
         Map<String, Object> config = defaultConfig(key);
         if (incoming != null) config.putAll(incoming);
-        config.put("limit", intValue(config.get("limit"), 8, 1, 30));
+        config.put("limit", intValue(config.get("limit"), 5, 1, 30));
 
         switch (key) {
             case "discounted" ->
@@ -570,7 +570,7 @@ public class HomeContentController {
         Map<String, Object> config =
                 section.getConfig() == null ? Map.of() : section.getConfig();
 
-        int limit = intValue(config.get("limit"), 8, 1, 30);
+        int limit = intValue(config.get("limit"), 5, 1, 30);
 
         List<Book> candidates = allBooks.stream()
                 .filter(Book::isAvailable)
