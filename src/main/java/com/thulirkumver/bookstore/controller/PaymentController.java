@@ -70,7 +70,8 @@ public class PaymentController {
             return ResponseEntity.ok(new CheckoutQuoteResponse(
                     quote.getSubtotalPaise(), quote.getShippingPaise(), quote.getDiscountPaise(),
                     gross, Math.max(0, settlement.walletBalancePaise(user.getId())),
-                    quote.getWalletRedeemedPaise(), quote.getAmountPaise(), quote.getCashbackPaise(), "INR", quote.getBogoDiscountPaise()));
+                    quote.getWalletRedeemedPaise(), quote.getAmountPaise(), quote.getCashbackPaise(), "INR", quote.getBogoDiscountPaise(),
+                    quote.getItems().stream().filter(item -> item.getBogoFreeQuantity() > 0).toList()));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }

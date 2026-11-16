@@ -17,6 +17,12 @@ public class Offer {
     private String endDate;
     private boolean active;
     private String bannerImage;
+    /** COUPON is the default for offers saved before book bundles existed. */
+    private String offerType = "COUPON";
+    private String buyBookId;
+    private String getBookId;
+    private int buyQuantity = 1;
+    private int getQuantity = 1;
 
     public Offer() {
     }
@@ -41,6 +47,16 @@ public class Offer {
     public void setEndDate(String endDate) { this.endDate = endDate; }
     public boolean isActive() { return active; }
     public void setActive(boolean active) { this.active = active; }
+    public String getOfferType() { return offerType == null ? "COUPON" : offerType; }
+    public void setOfferType(String value) { offerType = value; }
+    public String getBuyBookId() { return buyBookId; }
+    public void setBuyBookId(String value) { buyBookId = value; }
+    public String getGetBookId() { return getBookId; }
+    public void setGetBookId(String value) { getBookId = value; }
+    public int getBuyQuantity() { return buyQuantity; }
+    public void setBuyQuantity(int value) { buyQuantity = value; }
+    public int getGetQuantity() { return getQuantity; }
+    public void setGetQuantity(int value) { getQuantity = value; }
     public String getBannerImage() { return bannerImage; }
     public void setBannerImage(String bannerImage) { this.bannerImage = bannerImage; }
 }

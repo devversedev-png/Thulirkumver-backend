@@ -69,8 +69,8 @@ public class OrderService {
             items.add(new OrderItem(book.getId(), book.getTitle(), book.getImage(), book.getPrice(), cartItem.getQuantity()));
             subtotal += book.getPrice() * cartItem.getQuantity();
         }
-        long bogoPaise = bogoRules.snapshot(items).discountPaise();
-        double merchandiseDue = round(Math.max(0, subtotal - bogoPaise / 100.0));
+        BogoCalculator.Result bogo = bogoRules.snapshot(items);
+        double merchandiseDue = round(subtotal); // Free gift items cancel out at full value.
         double shipping = merchandiseDue >= 499 ? 0 : 60;
         Offer appliedOffer = resolveOffer(couponCode, merchandiseDue);
         double couponDiscount = appliedOffer == null ? 0 : calculateDiscount(appliedOffer, merchandiseDue);
@@ -100,6 +100,10 @@ public class OrderService {
             subtotal += book.getPrice() * entry.getQuantity();
         }
         BogoCalculator.Result bogo = bogoRules.snapshot(items);
+        // Include the actual free books in order items and the displayed subtotal;
+        // the equal gift discount cancels them without altering the payable total.
+        items.addAll(bogo.giftItems());
+        subtotal += bogo.discountPaise() / 100.0;
         double merchandiseDue = round(Math.max(0, subtotal - bogo.discountPaise() / 100.0));
         double shipping = merchandiseDue >= 499 ? 0 : 60;
         Offer offer = resolveOffer(couponCode, merchandiseDue);
@@ -134,20 +138,43 @@ public class OrderService {
     public Order placeCapturedOrder(String email, PaymentIntent intent, String razorpayPaymentId) {
         User user = userService.getByEmail(email);
         if (!user.getId().equals(intent.getUserId())) throw new IllegalArgumentException("Payment does not belong to this account");
-        if (user.getCart() == null || user.getCart().size() != intent.getItems().size())
+        long paidLines = intent.getItems().stream()
+                .filter(item -> item.getQuantity() > item.getBogoFreeQuantity()).count();
+        if (user.getCart() == null || user.getCart().size() != paidLines)
             throw new CheckoutChangedException();
 
+        // All paid and gift units are persisted atomically with the order. Reserved
+        // cart units must not be deducted a second time; gift units must be.
         for (OrderItem item : intent.getItems()) {
-            CartItem inCart = user.getCart().stream()
-                    .filter(entry -> item.getBookId().equals(entry.getBookId())
-                            && entry.getQuantity() == item.getQuantity()).findFirst().orElse(null);
-            if (inCart == null) throw new CheckoutChangedException();
-            if (!inCart.isStockReserved()) {
+            int paidQty = item.getQuantity() - item.getBogoFreeQuantity();
+            if (paidQty < 0 || item.getBogoFreeQuantity() < 0)
+                throw new CheckoutChangedException();
+            CartItem inCart = null;
+            boolean oldCombinedCartGift = false;
+            if (paidQty > 0) {
+                inCart = user.getCart().stream()
+                        .filter(entry -> item.getBookId().equals(entry.getBookId())
+                                && entry.getQuantity() == paidQty).findFirst().orElse(null);
+                // Phase 6 saved its "free" copies inside the purchased cart line.
+                // Honour already-created payment intents without double-debiting stock.
+                if (inCart == null && item.getBogoFreeQuantity() > 0) {
+                    inCart = user.getCart().stream()
+                            .filter(entry -> item.getBookId().equals(entry.getBookId())
+                                    && entry.getQuantity() == item.getQuantity()).findFirst().orElse(null);
+                    oldCombinedCartGift = inCart != null;
+                }
+                if (inCart == null) throw new CheckoutChangedException();
+            }
+            int stockQtyAlreadyInCart = oldCombinedCartGift ? item.getQuantity() : paidQty;
+            int freeQtyNotInCart = oldCombinedCartGift ? 0 : item.getBogoFreeQuantity();
+            int unitsToDeduct = freeQtyNotInCart
+                    + ((inCart != null && !inCart.isStockReserved()) ? stockQtyAlreadyInCart : 0);
+            if (unitsToDeduct > 0) {
                 Book book = bookRepository.findById(item.getBookId())
                         .orElseThrow(CheckoutChangedException::new);
-                if (!book.isAvailable() || book.getStock() < item.getQuantity())
+                if (!book.isAvailable() || book.getStock() < unitsToDeduct)
                     throw new CheckoutChangedException();
-                book.setStock(book.getStock() - item.getQuantity());
+                book.setStock(book.getStock() - unitsToDeduct);
                 bookRepository.save(book);
             }
         }
@@ -194,6 +221,7 @@ public class OrderService {
         }
     }
 
+    @Transactional
     public synchronized Order placeOrder(String email, CheckoutRequest request) {
         User user = userService.getByEmail(email);
         if (user.getCart() == null || user.getCart().isEmpty()) {
@@ -223,6 +251,16 @@ public class OrderService {
         }
 
         BogoCalculator.Result bogo = bogoRules.snapshot(orderItems);
+        for (OrderItem gift : bogo.giftItems()) {
+            Book giftBook = bookRepository.findById(gift.getBookId())
+                    .orElseThrow(() -> new IllegalArgumentException("The free book is unavailable"));
+            if (!giftBook.isAvailable() || giftBook.getStock() < gift.getQuantity())
+                throw new IllegalArgumentException("Not enough stock for free book " + gift.getTitle());
+            giftBook.setStock(giftBook.getStock() - gift.getQuantity());
+            bookRepository.save(giftBook);
+            orderItems.add(gift);
+        }
+        subtotal += bogo.discountPaise() / 100.0;
         double merchandiseDue = round(Math.max(0, subtotal - bogo.discountPaise() / 100.0));
         double shipping = merchandiseDue >= 499 ? 0 : 60;
         Offer appliedOffer = resolveOffer(request.couponCode(), merchandiseDue);
@@ -445,20 +483,20 @@ public class OrderService {
     }
 
     private void reserveOrderStock(Order order) {
-        List<Book> books = new ArrayList<>();
-        for (OrderItem item : order.getItems()) {
-            Book book = bookRepository.findById(item.getBookId())
-                    .orElseThrow(() -> new IllegalArgumentException(item.getTitle() + " is no longer in the catalogue"));
-            if (!book.isAvailable() || book.getStock() < item.getQuantity()) {
-                throw new IllegalArgumentException("Cannot reopen order. Not enough stock for " + item.getTitle());
-            }
-            books.add(book);
+        Map<String, Integer> needed = new LinkedHashMap<>();
+        for (OrderItem item : order.getItems())
+            needed.merge(item.getBookId(), item.getQuantity(), Math::addExact);
+        Map<String, Book> chosen = new LinkedHashMap<>();
+        for (Map.Entry<String, Integer> entry : needed.entrySet()) {
+            Book book = bookRepository.findById(entry.getKey())
+                    .orElseThrow(() -> new IllegalArgumentException("An ordered book is no longer in the catalogue"));
+            if (!book.isAvailable() || book.getStock() < entry.getValue())
+                throw new IllegalArgumentException("Cannot reopen order. Not enough stock for " + book.getTitle());
+            chosen.put(entry.getKey(), book);
         }
-
-        for (int i = 0; i < order.getItems().size(); i++) {
-            OrderItem item = order.getItems().get(i);
-            Book book = books.get(i);
-            book.setStock(book.getStock() - item.getQuantity());
+        for (Map.Entry<String, Integer> entry : needed.entrySet()) {
+            Book book = chosen.get(entry.getKey());
+            book.setStock(book.getStock() - entry.getValue());
             bookRepository.save(book);
         }
     }
@@ -467,6 +505,8 @@ public class OrderService {
         if (code == null || code.isBlank()) return null;
         Offer offer = offerRepository.findByCodeIgnoreCase(code.trim())
                 .orElseThrow(() -> new IllegalArgumentException("Invalid offer code"));
+        if ("BUY_GET".equalsIgnoreCase(offer.getOfferType()))
+            throw new IllegalArgumentException("Book bundle offers apply automatically; they are not coupon codes");
         String today = LocalDate.now().toString();
         if (!offer.isActive()) throw new IllegalArgumentException("This offer is not active");
         if (offer.getStartDate() != null && !offer.getStartDate().isBlank() && offer.getStartDate().compareTo(today) > 0)

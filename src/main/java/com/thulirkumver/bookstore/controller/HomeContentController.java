@@ -52,11 +52,6 @@ public class HomeContentController {
                     "description", "Books marked as featured or selected manually by the admin."
             ),
             Map.of(
-                    "key", "bogo",
-                    "title", "Buy 1 Get 1 Free",
-                    "description", "Buy two copies of a selected title and get one copy free."
-            ),
-            Map.of(
                     "key", "cashback",
                     "title", "Cashback Books",
                     "description", "Books selected for cashback promotions."
@@ -111,8 +106,7 @@ public class HomeContentController {
 
         return safeFindAllSections().stream()
                 .filter(HomeSection::isActive)
-                .filter(section -> !"bogo".equals(section.getKey()) || section.getConfig() == null
-                        || !Boolean.FALSE.equals(section.getConfig().get("enabled")))
+                .filter(section -> !"bogo".equalsIgnoreCase(section.getKey()))
                 .map(section -> {
                     List<Book> resolved = resolveBooks(section, books, byId, sales);
                     if (resolved.isEmpty()) return null;
@@ -126,7 +120,7 @@ public class HomeContentController {
                     result.put("displayOrder", section.getDisplayOrder());
                     result.put("config", section.getConfig());
                     result.put("bookIds", resolved.stream().map(Book::getId).toList());
-                    if ("bogo".equals(section.getKey()) || "cashback".equals(section.getKey()))
+                    if ("cashback".equals(section.getKey()))
                         result.put("eligibleBookIds", section.getBookIds());
                     result.put("books", resolved);
                     return result;
@@ -142,7 +136,9 @@ public class HomeContentController {
 
     @GetMapping("/admin/home-sections")
     public List<HomeSection> adminSections() {
-        return ensureDefaultSections();
+        return ensureDefaultSections().stream()
+                .filter(section -> !"bogo".equalsIgnoreCase(section.getKey()))
+                .toList();
     }
 
     @PutMapping("/admin/home-sections")
@@ -152,7 +148,7 @@ public class HomeContentController {
         if (changesBookPrices) pricingService.normalizeLegacyBooks();
         List<HomeSection> saved = new ArrayList<>();
         for (HomeSection incoming : sections == null ? List.<HomeSection>of() : sections) {
-            if (incoming.getKey() == null || incoming.getKey().isBlank()) continue;
+            if (incoming.getKey() == null || incoming.getKey().isBlank() || "bogo".equalsIgnoreCase(incoming.getKey())) continue;
 
             HomeSection target = safeFindSectionByKey(incoming.getKey()).orElseGet(HomeSection::new);
 
@@ -166,7 +162,9 @@ public class HomeContentController {
             saved.add(safeSaveSection(target));
         }
         if (changesBookPrices) pricingService.syncFromStoredSection();
-        return ensureDefaultSections();
+        return ensureDefaultSections().stream()
+                .filter(section -> !"bogo".equalsIgnoreCase(section.getKey()))
+                .toList();
     }
 
     /** Saves one section and applies book-specific discounts to catalogue prices. */

@@ -5,6 +5,7 @@ import com.thulirkumver.bookstore.dto.AdminOrderActionResponse;
 import com.thulirkumver.bookstore.dto.AdminOrderStatusRequest;
 import com.thulirkumver.bookstore.dto.AdminPaymentUpdateRequest;
 import com.thulirkumver.bookstore.model.Offer;
+import com.thulirkumver.bookstore.repository.BookRepository;
 import com.thulirkumver.bookstore.model.Order;
 import com.thulirkumver.bookstore.model.User;
 import com.thulirkumver.bookstore.repository.OfferRepository;
@@ -26,15 +27,17 @@ public class AdminOperationsController {
     private final OrderRepository orderRepository;
     private final UserRepository userRepository;
     private final OfferRepository offerRepository;
+    private final BookRepository bookRepository;
 
     public AdminOperationsController(OrderService orderService,
                                      OrderRepository orderRepository,
                                      UserRepository userRepository,
-                                     OfferRepository offerRepository) {
+                                     OfferRepository offerRepository, BookRepository bookRepository) {
         this.orderService = orderService;
         this.orderRepository = orderRepository;
         this.userRepository = userRepository;
         this.offerRepository = offerRepository;
+        this.bookRepository = bookRepository;
     }
 
     @GetMapping("/orders")
@@ -81,6 +84,7 @@ public class AdminOperationsController {
     @PostMapping("/offers")
     public Offer createOffer(@RequestBody Offer offer) {
         offer.setId(null);
+        validateOffer(offer, null);
         return offerRepository.save(offer);
     }
 
@@ -88,6 +92,7 @@ public class AdminOperationsController {
     public ResponseEntity<Offer> updateOffer(@PathVariable String id, @RequestBody Offer offer) {
         if (!offerRepository.existsById(id)) return ResponseEntity.notFound().build();
         offer.setId(id);
+        validateOffer(offer, id);
         return ResponseEntity.ok(offerRepository.save(offer));
     }
 
@@ -96,6 +101,43 @@ public class AdminOperationsController {
         if (!offerRepository.existsById(id)) return ResponseEntity.notFound().build();
         offerRepository.deleteById(id);
         return ResponseEntity.noContent().build();
+    }
+
+    private void validateOffer(Offer offer, String editingId) {
+        if (offer.getTitle() == null || offer.getTitle().isBlank())
+            throw new IllegalArgumentException("Offer title is required");
+        if (offer.getStartDate() != null && !offer.getStartDate().isBlank()
+                && offer.getEndDate() != null && !offer.getEndDate().isBlank()
+                && offer.getStartDate().compareTo(offer.getEndDate()) > 0)
+            throw new IllegalArgumentException("End date must not precede start date");
+        if ("BUY_GET".equalsIgnoreCase(offer.getOfferType())) {
+            offer.setOfferType("BUY_GET");
+            offer.setCode(""); // Buy X Get Y promotions apply without a coupon.
+            if (offer.getBuyBookId() == null || offer.getBuyBookId().isBlank()
+                    || offer.getGetBookId() == null || offer.getGetBookId().isBlank()
+                    || !bookRepository.existsById(offer.getBuyBookId())
+                    || !bookRepository.existsById(offer.getGetBookId()))
+                throw new IllegalArgumentException("Choose an existing qualifying book and free book");
+            if (offer.getBuyQuantity() < 1 || offer.getBuyQuantity() > 50
+                    || offer.getGetQuantity() < 1 || offer.getGetQuantity() > 50)
+                throw new IllegalArgumentException("Buy and free quantities must be between 1 and 50");
+            // One active rule per qualifying title avoids accidental stacking or
+            // admin-order-dependent selection. Inactive drafts may coexist.
+            if (offer.isActive()) {
+                boolean conflict = offerRepository.findAll().stream()
+                        .anyMatch(saved -> !java.util.Objects.equals(saved.getId(), editingId)
+                                && saved.isActive() && "BUY_GET".equalsIgnoreCase(saved.getOfferType())
+                                && offer.getBuyBookId().equals(saved.getBuyBookId()));
+                if (conflict)
+                    throw new IllegalArgumentException("Another active Buy X Get Y offer already uses this qualifying book");
+            }
+        } else {
+            offer.setOfferType("COUPON");
+            if (!Double.isFinite(offer.getDiscountValue()) || offer.getDiscountValue() < 0
+                    || !Double.isFinite(offer.getMinOrderAmount()) || offer.getMinOrderAmount() < 0
+                    || ("PERCENT".equalsIgnoreCase(offer.getDiscountType()) && offer.getDiscountValue() > 100))
+                throw new IllegalArgumentException("Invalid coupon discount");
+        }
     }
 
     private AdminCustomerResponse customerResponse(User user) {
